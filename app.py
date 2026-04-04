@@ -12,7 +12,30 @@
 # =============================================================================
 
 import streamlit as st
+
+# Protección con contraseña
+def check_password():
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+
+    if not st.session_state.password_correct:
+        st.write("🔒 Ingresa la contraseña para acceder")
+        password = st.text_input("Contraseña:", type="password")
+        
+        if password == "ENDCLAVADOS2026":
+            st.session_state.password_correct = True
+            st.rerun()
+        elif password:
+            st.error("❌ Contraseña incorrecta")
+            return False
+        return False
+    return True
+
+if not check_password():
+    st.stop()
+
 import numpy as np
+
 import pandas as pd
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
