@@ -1,62 +1,7 @@
-# =============================================================================
-#  DASHBOARD DE FATIGA — CLUB TORNADOS
-#  app.py · Streamlit + Supabase + Fuzzy Logic Mamdani v3
-# =============================================================================
-#  ESTRUCTURA:
-#  ├── app.py
-#  ├── database.py
-#  ├── requirements.txt
-#  ├── schema.sql
-#  └── .streamlit/
-#      └── secrets.toml
-# =============================================================================
-
 import streamlit as st
 
-# Protección con contraseña
-def check_password():
-    if "password_correct" not in st.session_state:
-        st.session_state.password_correct = False
-
-    if not st.session_state.password_correct:
-        st.write("🔒 Ingresa la contraseña para acceder")
-        password = st.text_input("Contraseña:", type="password")
-        
-        if password == "ENDCLAVADOS2026":
-            st.session_state.password_correct = True
-            st.rerun()
-        elif password:
-            st.error("❌ Contraseña incorrecta")
-            return False
-        return False
-    return True
-
-if not check_password():
-    st.stop()
-
-import numpy as np
-
-import pandas as pd
-import skfuzzy as fuzz
-from skfuzzy import control as ctrl
-import matplotlib.pyplot as plt
-from scipy import stats
-import warnings
-from datetime import date, timedelta
-
-from database import (
-    cargar_sesiones,
-    cargar_atletas,
-    insertar_sesion,
-    actualizar_sesion,
-    eliminar_sesion,
-    importar_dataframe,
-)
-
-warnings.filterwarnings("ignore")
-
 # =============================================================================
-#  SECCIÓN 1 — CONFIGURACIÓN DE PÁGINA
+#  SECCIÓN 1 — CONFIGURACIÓN DE PÁGINA  (debe ir ANTES de cualquier st.*)
 # =============================================================================
 
 st.set_page_config(
@@ -88,17 +33,87 @@ st.markdown("""
 
 
 # =============================================================================
-#  SECCIÓN 2 — MODELO MATEMÁTICO (NO MODIFICAR)
+#  SECCIÓN 2 — PROTECCIÓN CON CONTRASEÑA
+#  IMPORTANTE: Configurar en Streamlit Cloud → App Settings → Secrets:
+#    APP_PASSWORD = "tu_contraseña_aqui"
+#  Mientras no esté configurado, usa el fallback local (solo para desarrollo).
+# =============================================================================
+
+def check_password() -> bool:
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+
+    if not st.session_state.password_correct:
+        st.write("🔒 Ingresa la contraseña para acceder")
+        password = st.text_input("Contraseña:", type="password")
+
+        # Lee desde Secrets; si no existe, usa fallback local (solo desarrollo)
+        expected = st.secrets.get("APP_PASSWORD", "ENDCLAVADOS2026")
+
+        if password == expected:
+            st.session_state.password_correct = True
+            st.rerun()
+        elif password:
+            st.error("❌ Contraseña incorrecta")
+            return False
+        return False
+    return True
+
+if not check_password():
+    st.stop()
+
+
+# =============================================================================
+#  IMPORTACIONES
+# =============================================================================
+
+import numpy as np
+import pandas as pd
+import skfuzzy as fuzz
+from skfuzzy import control as ctrl
+import matplotlib.pyplot as plt
+from scipy import stats
+import warnings
+from datetime import date, timedelta
+
+from database import (
+    cargar_sesiones,
+    cargar_atletas,
+    insertar_sesion,
+    actualizar_sesion,
+    eliminar_sesion,
+    importar_dataframe,
+)
+
+warnings.filterwarnings("ignore")
+
+
+# =============================================================================
+#  SECCIÓN 3 — CARGA DE DATOS CON CACHÉ (TTL 30 s)
+#  Se envuelve aquí para no depender de que database.py tenga el decorador.
+# =============================================================================
+
+@st.cache_data(ttl=30)
+def cargar_sesiones_cached() -> pd.DataFrame:
+    return cargar_sesiones()
+
+@st.cache_data(ttl=30)
+def cargar_atletas_cached() -> list:
+    return cargar_atletas()
+
+
+# =============================================================================
+#  SECCIÓN 4 — MODELO MATEMÁTICO (NO MODIFICAR)
 # =============================================================================
 
 def calcular_metricas(df: pd.DataFrame, atleta: str, ventana_meso: int = 28) -> dict | None:
     """
     5 variables de entrada del motor Mamdani:
-    1. acwr      → MMA₇ / MMC₂₈
-    2. delta_pct → Δ% pérdida VMP_hoy vs MMA₇
-    3. z_meso    → Z-score sobre ventana mesociclo (28d, NO historial total)
+    1. acwr       → MMA₇ / MMC₂₈
+    2. delta_pct  → Δ% pérdida VMP_hoy vs MMA₇
+    3. z_meso     → Z-score sobre ventana mesociclo (28d, NO historial total)
     4. beta_aguda → pendiente regresión últimas 7 sesiones
-    5. beta_28   → pendiente regresión últimas 28 sesiones
+    5. beta_28    → pendiente regresión últimas 28 sesiones
     """
     sub = df[df["Nombre"] == atleta].copy().reset_index(drop=True)
     vmp = sub["VMP_Hoy"].values
@@ -112,19 +127,22 @@ def calcular_metricas(df: pd.DataFrame, atleta: str, ventana_meso: int = 28) -> 
 
     delta_pct = ((mma7 - vmp[-1]) / mma7) * 100 if mma7 > 0 else 0.0
 
-    win   = vmp[-min(ventana_meso, n):]
-    mu_m  = np.mean(win)
-    sig_m = np.std(win)
+    win    = vmp[-min(ventana_meso, n):]
+    mu_m   = np.mean(win)
+    sig_m  = np.std(win)
     z_meso = (vmp[-1] - mu_m) / sig_m if sig_m > 0 else 0.0
 
-    rn        = min(7, n)
+    rn         = min(7, n)
     beta_aguda = np.polyfit(np.arange(rn), vmp[-rn:], 1)[0]
 
-    w28    = min(28, n)
+    w28     = min(28, n)
     beta_28 = np.polyfit(np.arange(w28), vmp[-w28:], 1)[0]
 
-    cv = (np.std(vmp) / np.mean(vmp)) * 100 if np.mean(vmp) > 0 else 0
+    cv   = (np.std(vmp) / np.mean(vmp)) * 100 if np.mean(vmp) > 0 else 0
     _, p_n = stats.shapiro(vmp) if n >= 8 else (None, None)
+
+    # Fecha de la última sesión registrada
+    ultima_fecha = sub["Fecha"].max()
 
     return {
         "atleta": atleta, "n_sesiones": n,
@@ -136,6 +154,7 @@ def calcular_metricas(df: pd.DataFrame, atleta: str, ventana_meso: int = 28) -> 
         "cv_pct": float(cv),
         "historial": vmp.tolist(),
         "fechas": sub["Fecha"].tolist(),
+        "ultima_fecha": str(ultima_fecha)[:10],
         "p_normalidad": float(p_n) if p_n else None,
     }
 
@@ -221,6 +240,21 @@ def construir_reglas(acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v):
     ]
 
 
+@st.cache_resource
+def construir_motor_fuzzy():
+    """
+    Construye y cachea el motor completo en un solo paso.
+    Incluye variables, reglas, sistema y simulador.
+    Se ejecuta UNA sola vez por sesión de servidor.
+    """
+    vars_tuple = construir_sistema_fuzzy()
+    acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v = vars_tuple
+    reglas    = construir_reglas(acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v)
+    sistema   = ctrl.ControlSystem(reglas)
+    simulador = ctrl.ControlSystemSimulation(sistema)
+    return vars_tuple, simulador
+
+
 def evaluar_atleta(simulador, metricas: dict) -> dict:
     """Corre el motor difuso y clasifica el índice de salida."""
     try:
@@ -248,7 +282,7 @@ def evaluar_atleta(simulador, metricas: dict) -> dict:
 
 
 # =============================================================================
-#  SECCIÓN 3 — GRÁFICOS
+#  SECCIÓN 5 — GRÁFICOS
 # =============================================================================
 
 def fig_semaforo(df_res: pd.DataFrame) -> plt.Figure:
@@ -267,7 +301,10 @@ def fig_semaforo(df_res: pd.DataFrame) -> plt.Figure:
                 va="center", fontsize=10, color=r["color"], fontweight="bold")
         ax.text(72, y, r["estado"].split(" ", 1)[1],
                 va="center", fontsize=8.5, color=r["color"])
-    ax.set_xlim(-22, 110)
+        # Fecha de última sesión (nueva)
+        ultima = r.get("ultima_fecha", "")
+        ax.text(105, y, ultima, va="center", fontsize=7.5, color="#64748b")
+    ax.set_xlim(-22, 125)
     ax.set_ylim(-0.6, len(df_p) * 1.1)
     ax.set_title("Índice de Fatiga  [0 = Crítico → 100 = Óptimo]",
                  color="white", fontsize=11, pad=12)
@@ -313,11 +350,11 @@ def fig_tendencia(m: dict) -> plt.Figure:
 def fig_membership(vars_tuple) -> plt.Figure:
     acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v = vars_tuple
     configs = [
-        (acwr_v,  ["bajo","optimo","alto","excesivo"],          "ACWR"),
-        (delta_v, ["ganancia","tolerable","vigilancia","alarma"],"Δ% Pérdida VBT"),
-        (zmeso_v, ["muy_bajo","bajo","normal","elevado"],        "Z-Score Mesociclo"),
+        (acwr_v,  ["bajo","optimo","alto","excesivo"],               "ACWR"),
+        (delta_v, ["ganancia","tolerable","vigilancia","alarma"],     "Δ% Pérdida VBT"),
+        (zmeso_v, ["muy_bajo","bajo","normal","elevado"],             "Z-Score Mesociclo"),
         (ba_v,    ["neg_fuerte","neg_moderada","estable","positiva"], "Pendiente β₇"),
-        (b28_v,   ["deterioro","estable","mejora"],              "Pendiente β₂₈"),
+        (b28_v,   ["deterioro","estable","mejora"],                   "Pendiente β₂₈"),
         (fat_v,   ["critico","fatiga_acumulada","alerta_temprana","optimo"], "SALIDA: Fatiga"),
     ]
     colores = ["#f87171", "#fb923c", "#34d399", "#38bdf8"]
@@ -342,7 +379,7 @@ def fig_membership(vars_tuple) -> plt.Figure:
 
 
 # =============================================================================
-#  SECCIÓN 4 — SIDEBAR
+#  SECCIÓN 6 — SIDEBAR
 # =============================================================================
 
 def render_sidebar() -> dict:
@@ -380,11 +417,10 @@ def render_sidebar() -> dict:
 
 
 # =============================================================================
-#  SECCIÓN 5 — TAB: DASHBOARD
+#  SECCIÓN 7 — TAB: DASHBOARD
 # =============================================================================
 
 def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
-    # ── Métricas globales ─────────────────────────────────────────────────────
     atletas    = sorted(df_raw["Nombre"].unique())
     metricas_l = [calcular_metricas(df_raw, a, cfg["ventana_meso"]) for a in atletas]
     metricas_l = [m for m in metricas_l if m]
@@ -409,25 +445,36 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
     st.markdown("## 🚦 Semáforo de Fatiga — Todos los Atletas")
     st.pyplot(fig_semaforo(df_res))
 
-    # ── Tabla resumen ─────────────────────────────────────────────────────────
+    # ── Tabla resumen + descarga ───────────────────────────────────────────────
     st.markdown("## 📋 Tabla de Resultados")
-    cols = ["atleta","vmp_hoy","acwr","delta_pct","z_meso","beta_aguda","beta_28","indice_fatiga","estado","accion"]
+    cols = ["atleta","vmp_hoy","acwr","delta_pct","z_meso","beta_aguda","beta_28",
+            "indice_fatiga","estado","accion","ultima_fecha"]
     df_t = (
         df_res[cols]
         .rename(columns={
-            "atleta":"Atleta","vmp_hoy":"VMP Hoy","acwr":"ACWR",
-            "delta_pct":"Δ% VBT","z_meso":"Z Meso",
-            "beta_aguda":"β₇","beta_28":"β₂₈",
-            "indice_fatiga":"Índice","estado":"Estado","accion":"Acción"
+            "atleta":"Atleta", "vmp_hoy":"VMP Hoy", "acwr":"ACWR",
+            "delta_pct":"Δ% VBT", "z_meso":"Z Meso",
+            "beta_aguda":"β₇", "beta_28":"β₂₈",
+            "indice_fatiga":"Índice", "estado":"Estado", "accion":"Acción",
+            "ultima_fecha":"Última Sesión",
         })
         .sort_values("Índice")
     )
     st.dataframe(
         df_t.style.format({
-            "VMP Hoy":"{:.3f}","ACWR":"{:.3f}","Δ% VBT":"{:+.1f}%",
-            "Z Meso":"{:+.2f}","β₇":"{:+.4f}","β₂₈":"{:+.4f}","Índice":"{:.1f}"
+            "VMP Hoy":"{:.3f}", "ACWR":"{:.3f}", "Δ% VBT":"{:+.1f}%",
+            "Z Meso":"{:+.2f}", "β₇":"{:+.4f}", "β₂₈":"{:+.4f}", "Índice":"{:.1f}"
         }),
         use_container_width=True, hide_index=True
+    )
+
+    # Botón de descarga CSV
+    csv_bytes = df_t.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="⬇️ Descargar resultados (CSV)",
+        data=csv_bytes,
+        file_name=f"fatiga_tornados_{date.today()}.csv",
+        mime="text/csv",
     )
 
     # ── Análisis individual ───────────────────────────────────────────────────
@@ -442,10 +489,10 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
         if m is None:
             st.warning("Datos insuficientes (mínimo 4 sesiones).")
             return
-        m["estado"] = row["estado"]
-        m["color"]  = row["color"]
+        m["estado"]        = row["estado"]
+        m["color"]         = row["color"]
         m["indice_fatiga"] = row["indice_fatiga"]
-        m["mma7"]   = row["mma7"]
+        m["mma7"]          = row["mma7"]
 
         col_info, col_vars = st.columns([1, 2])
         with col_info:
@@ -457,19 +504,20 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
   <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Índice de Fatiga</div>
   <div style="font-size:15px;font-weight:700;color:{color};margin-top:8px;">{row['estado']}</div>
   <div style="font-size:12px;color:#94a3b8;margin-top:8px;line-height:1.5;">{row['accion']}</div>
+  <div style="font-size:11px;color:#475569;margin-top:10px;">Última sesión: {row.get('ultima_fecha','—')}</div>
 </div>
 """, unsafe_allow_html=True)
 
         with col_vars:
             st.markdown("#### Variables del Modelo")
             d1, d2, d3 = st.columns(3)
-            d1.metric("ACWR",    f"{row['acwr']:.3f}",      help="Zona segura pediátrica: 0.92–1.10")
+            d1.metric("ACWR",    f"{row['acwr']:.3f}",       help="Zona segura pediátrica: 0.92–1.10")
             d2.metric("Δ% VBT",  f"{row['delta_pct']:+.1f}%", help=">20% = alarma VBT")
             d3.metric("Z Meso",  f"{row['z_meso']:+.2f}")
             d4, d5, d6 = st.columns(3)
-            d4.metric("β₇",      f"{row['beta_aguda']:+.4f} m/s·ses⁻¹")
-            d5.metric("β₂₈",     f"{row['beta_28']:+.4f} m/s·ses⁻¹")
-            d6.metric("N sesiones", int(row["n_sesiones"]))
+            d4.metric("β₇",         f"{row['beta_aguda']:+.4f} m/s·ses⁻¹")
+            d5.metric("β₂₈",        f"{row['beta_28']:+.4f} m/s·ses⁻¹")
+            d6.metric("N sesiones",  int(row["n_sesiones"]))
 
         st.markdown("#### Tendencia VMP")
         st.pyplot(fig_tendencia(m))
@@ -488,10 +536,10 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
 
 
 # =============================================================================
-#  SECCIÓN 6 — TAB: INGRESO DE DATOS
+#  SECCIÓN 8 — TAB: INGRESO DE DATOS
 # =============================================================================
 
-def tab_ingreso(atletas_lista: list[str]):
+def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
     st.markdown("### ➕ Registrar Sesión")
     st.markdown('<div class="form-card">', unsafe_allow_html=True)
 
@@ -509,17 +557,33 @@ def tab_ingreso(atletas_lista: list[str]):
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # Aviso preventivo de duplicado antes de guardar
+    if not df_raw.empty:
+        ya_existe = (
+            (df_raw["Nombre"] == atleta_sel) &
+            (df_raw["Fecha"]  == pd.Timestamp(fecha_sel))
+        ).any()
+        if ya_existe:
+            st.warning(
+                f"⚠️ Ya existe un registro para **{atleta_sel}** el **{fecha_sel}**. "
+                "Guarda solo si deseas agregar una segunda sesión en el mismo día."
+            )
+
     if st.button("💾 Guardar Sesión", type="primary", use_container_width=False):
         ok, msg = insertar_sesion(atleta_sel, fecha_sel, vmp_val, notas_val)
         if ok:
             st.success(msg)
+            st.cache_data.clear()   # refresca el dashboard inmediatamente
         else:
             st.error(msg)
 
     # ── Ingreso rápido múltiple ───────────────────────────────────────────────
     st.markdown("---")
     st.markdown("### ⚡ Registro Rápido Multi-Atleta (mismo día)")
-    st.caption("Útil al terminar un entrenamiento con varios atletas.")
+    st.caption(
+        "Útil al terminar un entrenamiento con varios atletas. "
+        "Deja en **0.000** a quienes no participaron — se omitirán automáticamente."
+    )
 
     fecha_multi = st.date_input("Fecha de la sesión", value=date.today(),
                                  max_value=date.today(), key="multi_fecha")
@@ -552,10 +616,11 @@ def tab_ingreso(atletas_lista: list[str]):
                 st.warning("Algunos registros no se pudieron guardar:\n" + "\n".join(errores))
             else:
                 st.success(f"✅ {len(vmp_multi)} sesiones guardadas correctamente.")
+                st.cache_data.clear()   # refresca el dashboard inmediatamente
 
 
 # =============================================================================
-#  SECCIÓN 7 — TAB: HISTORIAL Y EDICIÓN
+#  SECCIÓN 9 — TAB: HISTORIAL Y EDICIÓN
 # =============================================================================
 
 def tab_historial(df_raw: pd.DataFrame, atletas_lista: list[str]):
@@ -578,7 +643,11 @@ def tab_historial(df_raw: pd.DataFrame, atletas_lista: list[str]):
         st.info("No hay registros en el rango seleccionado.")
         return
 
-    # Formatear tabla de selección
+    # Garantizar que la columna notas exista aunque venga vacía
+    if "notas" not in sub.columns:
+        sub = sub.copy()
+        sub["notas"] = ""
+
     sub_display = sub[["Fecha","VMP_Hoy","notas","id"]].copy()
     sub_display["Fecha"] = sub_display["Fecha"].dt.strftime("%Y-%m-%d")
 
@@ -589,7 +658,6 @@ def tab_historial(df_raw: pd.DataFrame, atletas_lista: list[str]):
     )
 
     st.markdown("---")
-    # Seleccionar fila para editar
     opciones = {
         f"{row['Fecha'].strftime('%Y-%m-%d')} · {row['VMP_Hoy']:.3f} m/s": row["id"]
         for _, row in sub.iterrows()
@@ -600,30 +668,38 @@ def tab_historial(df_raw: pd.DataFrame, atletas_lista: list[str]):
 
     col_e1, col_e2 = st.columns([2, 3])
     with col_e1:
-        nuevo_vmp   = st.number_input(
+        nuevo_vmp = st.number_input(
             "Nuevo VMP (m/s)", min_value=0.100, max_value=4.999,
             value=float(sel_row["VMP_Hoy"]), step=0.001, format="%.3f", key="ed_vmp"
         )
     with col_e2:
         nuevas_notas = st.text_input(
-            "Notas", value=str(sel_row.get("notas", "")), key="ed_notas"
+            "Notas", value=str(sel_row.get("notas", "") or ""), key="ed_notas"
         )
 
     col_btn1, col_btn2, _ = st.columns([1, 1, 3])
     with col_btn1:
         if st.button("✏️ Actualizar", type="primary"):
             ok, msg = actualizar_sesion(sel_id, nuevo_vmp, nuevas_notas)
-            st.success(msg) if ok else st.error(msg)
+            if ok:
+                st.success(msg)
+                st.cache_data.clear()
+                st.rerun()
+            else:
+                st.error(msg)
     with col_btn2:
         if st.button("🗑️ Eliminar", type="secondary"):
             ok, msg = eliminar_sesion(sel_id)
-            st.success(msg) if ok else st.error(msg)
             if ok:
+                st.success(msg)
+                st.cache_data.clear()
                 st.rerun()
+            else:
+                st.error(msg)
 
 
 # =============================================================================
-#  SECCIÓN 8 — TAB: IMPORTACIÓN MASIVA
+#  SECCIÓN 10 — TAB: IMPORTACIÓN MASIVA
 # =============================================================================
 
 def tab_importacion():
@@ -646,7 +722,6 @@ El archivo debe tener mínimo estas tres columnas (nombres exactos o equivalente
             else:
                 df_imp = pd.read_excel(archivo)
 
-            # Detección flexible de columnas
             col_map = {}
             for c in df_imp.columns:
                 cl = c.lower().strip()
@@ -668,13 +743,14 @@ El archivo debe tener mínimo estas tres columnas (nombres exactos o equivalente
                 st.success(f"✅ Insertados: {ins} · Omitidos (duplicados): {omi}")
                 if errs:
                     st.warning("Errores:\n" + "\n".join(errs))
+                st.cache_data.clear()
 
         except Exception as e:
             st.error(f"Error al leer el archivo: {e}")
 
 
 # =============================================================================
-#  SECCIÓN 9 — MAIN
+#  SECCIÓN 11 — MAIN
 # =============================================================================
 
 def main():
@@ -687,13 +763,16 @@ def main():
 
     cfg = render_sidebar()
 
-    # ── Carga de datos ─────────────────────────────────────────────────────────
+    # ── Carga de datos (cacheada con TTL 30 s) ────────────────────────────────
     with st.spinner("Conectando con base de datos..."):
-        df_raw       = cargar_sesiones()
-        atletas_lista = cargar_atletas()
+        df_raw        = cargar_sesiones_cached()
+        atletas_lista = cargar_atletas_cached()
 
     if df_raw.empty:
-        st.warning("Base de datos vacía. Ve a **Ingreso de Datos** para registrar sesiones.")
+        st.warning(
+            "Base de datos vacía. Ve a la pestaña **➕ Ingreso de Datos** "
+            "para registrar las primeras sesiones."
+        )
     else:
         n_atletas = df_raw["Nombre"].nunique()
         ultima    = df_raw["Fecha"].max().strftime("%d/%m/%Y")
@@ -702,13 +781,8 @@ def main():
             f"Última sesión: **{ultima}**"
         )
 
-    # ── Motor fuzzy (se construye una vez por sesión) ──────────────────────────
-    with st.spinner("Iniciando motor fuzzy..."):
-        vars_tuple = construir_sistema_fuzzy()
-        acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v = vars_tuple
-        reglas     = construir_reglas(acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v)
-        sistema    = ctrl.ControlSystem(reglas)
-        simulador  = ctrl.ControlSystemSimulation(sistema)
+    # ── Motor fuzzy (construido y cacheado una sola vez) ──────────────────────
+    vars_tuple, simulador = construir_motor_fuzzy()
 
     # ── Tabs ───────────────────────────────────────────────────────────────────
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -722,10 +796,10 @@ def main():
         if not df_raw.empty:
             tab_dashboard(df_raw, simulador, vars_tuple, cfg)
         else:
-            st.info("Sin datos para mostrar. Registra sesiones en la pestaña **Ingreso de Datos**.")
+            st.info("Sin datos para mostrar. Registra sesiones en la pestaña **➕ Ingreso de Datos**.")
 
     with tab2:
-        tab_ingreso(atletas_lista)
+        tab_ingreso(atletas_lista, df_raw)
 
     with tab3:
         if not df_raw.empty:
