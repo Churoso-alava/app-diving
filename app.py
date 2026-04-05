@@ -363,10 +363,6 @@ def render_sidebar() -> dict:
     return {"ventana_meso": ventana_meso}
 
 
-Aquí tienes la **SECCIÓN 7** completa e integrada. He tomado tu código base, he limpiado los espacios invisibles (que a veces causan errores de sintaxis en Python al copiar y pegar), y he inyectado la lógica del **DQI (Índice de Calidad de Dato)** tanto en la tarjeta visual del atleta como en la tabla exportable a CSV.
-
-Reemplaza toda tu SECCIÓN 7 actual con el siguiente bloque:
-
 # =============================================================================
 #  SECCIÓN 7 — TAB: DASHBOARD
 # =============================================================================
