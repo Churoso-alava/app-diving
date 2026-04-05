@@ -1,8 +1,13 @@
-import streamlit as st
 
 # =============================================================================
 #  SECCIÓN 1 — CONFIGURACIÓN DE PÁGINA  (debe ir ANTES de cualquier st.*)
 # =============================================================================
+import streamlit as st
+import pandas as pd
+import numpy as np
+import skfuzzy as fuzz
+from skfuzzy import control as ctrl
+from datetime import date
 
 st.set_page_config(
     page_title="Dashboard Fatiga · Club Tornados",
