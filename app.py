@@ -103,182 +103,129 @@ def cargar_atletas_cached() -> list:
 
 
 # =============================================================================
-#  SECCIÓN 4 — MODELO MATEMÁTICO (NO MODIFICAR)
+#  SECCIÓN 4 — MODELO MATEMÁTICO (INTEGRADO CON RESILIENCIA TEMPORAL)
 # =============================================================================
 
+# Constantes del DQI (Data Quality Index)
+_DQI_W7  = 0.40
+_DQI_W28 = 0.60
+_REF_7D  = 3
+_REF_28D = 12
+_TOL = 0.50
+_GAP_MIN, _GAP_MAX = 1.0, 7.0
+
 def calcular_metricas(df: pd.DataFrame, atleta: str, ventana_meso: int = 28) -> dict | None:
-    """
-    5 variables de entrada del motor Mamdani:
-    1. acwr       → MMA₇ / MMC₂₈
-    2. delta_pct  → Δ% pérdida VMP_hoy vs MMA₇
-    3. z_meso     → Z-score sobre ventana mesociclo (28d, NO historial total)
-    4. beta_aguda → pendiente regresión últimas 7 sesiones
-    5. beta_28    → pendiente regresión últimas 28 sesiones
-    """
-    sub = df[df["Nombre"] == atleta].copy().reset_index(drop=True)
-    vmp = sub["VMP_Hoy"].values
-    n   = len(vmp)
+    """Calcula métricas con resiliencia total a frecuencia variable (2-6 días/sem)"""
+    sub = df[df["Nombre"] == atleta].copy().sort_values("Fecha")
+    sub = sub.groupby("Fecha", as_index=False)["VMP_Hoy"].max().sort_values("Fecha").reset_index(drop=True)
+
+    n = len(sub)
     if n < 4:
         return None
 
-    mma7  = pd.Series(vmp).rolling(7,  min_periods=3).mean().iloc[-1]
-    mmc28 = pd.Series(vmp).rolling(28, min_periods=7).mean().iloc[-1]
-    acwr  = mma7 / mmc28 if mmc28 > 0 else np.nan
+    idx        = pd.to_datetime(sub["Fecha"])
+    vmp_series = pd.Series(sub["VMP_Hoy"].values, index=idx, dtype=float)
+    date_range = pd.date_range(start=idx.min(), end=idx.max(), freq="D")
+    vmp_daily  = vmp_series.reindex(date_range)
 
-    delta_pct = ((mma7 - vmp[-1]) / mma7) * 100 if mma7 > 0 else 0.0
+    last_vmp   = float(vmp_series.iloc[-1])
+    last_date  = idx.max()
+    first_date = idx.min()
 
-    win    = vmp[-min(ventana_meso, n):]
-    mu_m   = np.mean(win)
-    sig_m  = np.std(win)
-    z_meso = (vmp[-1] - mu_m) / sig_m if sig_m > 0 else 0.0
+    dias_span  = max((last_date - first_date).days, 1)
+    freq_day   = n / dias_span
+    
+    # min_periods adaptativo
+    mp_7d  = max(1, round(max(1, freq_day * 7) * _TOL))
+    mp_28d = max(2, round(max(2, freq_day * 28) * _TOL))
 
-    rn         = min(7, n)
-    beta_aguda = np.polyfit(np.arange(rn), vmp[-rn:], 1)[0]
+    mma7_s  = vmp_daily.rolling("7D",  min_periods=mp_7d).mean()
+    mmc28_s = vmp_daily.rolling("28D", min_periods=mp_28d).mean()
 
-    w28     = min(28, n)
-    beta_28 = np.polyfit(np.arange(w28), vmp[-w28:], 1)[0]
+    mma7  = float(mma7_s.iloc[-1]) if not pd.isna(mma7_s.iloc[-1]) else last_vmp
+    mmc28 = float(mmc28_s.iloc[-1]) if not pd.isna(mmc28_s.iloc[-1]) else last_vmp
 
-    cv   = (np.std(vmp) / np.mean(vmp)) * 100 if np.mean(vmp) > 0 else 0
-    _, p_n = stats.shapiro(vmp) if n >= 8 else (None, None)
-
-    # Fecha de la última sesión registrada
-    ultima_fecha = sub["Fecha"].max()
-
-    return {
-        "atleta": atleta, "n_sesiones": n,
-        "vmp_hoy": float(vmp[-1]),
-        "mma7": float(mma7), "mmc28": float(mmc28),
-        "acwr": float(acwr), "delta_pct": float(delta_pct),
-        "z_meso": float(z_meso),
-        "beta_aguda": float(beta_aguda), "beta_28": float(beta_28),
-        "cv_pct": float(cv),
-        "historial": vmp.tolist(),
-        "fechas": sub["Fecha"].tolist(),
-        "ultima_fecha": str(ultima_fecha)[:10],
-        "p_normalidad": float(p_n) if p_n else None,
-    }
-
-
-@st.cache_resource
-def construir_sistema_fuzzy():
-    """Universos + funciones de pertenencia Mamdani. NO MODIFICAR."""
-    u_acwr  = np.arange(0.50, 1.81,  0.01)
-    u_delta = np.arange(-20,  41,    0.5)
-    u_zmeso = np.arange(-4,   4.1,   0.1)
-    u_ba    = np.arange(-0.25, 0.26,  0.001)
-    u_b28   = np.arange(-0.25, 0.26,  0.001)
-    u_fat   = np.arange(0, 101, 1)
-
-    acwr_v  = ctrl.Antecedent(u_acwr,  "acwr")
-    delta_v = ctrl.Antecedent(u_delta, "delta_pct")
-    zmeso_v = ctrl.Antecedent(u_zmeso, "z_meso")
-    ba_v    = ctrl.Antecedent(u_ba,    "beta_aguda")
-    b28_v   = ctrl.Antecedent(u_b28,   "beta_28")
-    fat_v   = ctrl.Consequent(u_fat,   "fatiga")
-
-    # ACWR
-    acwr_v["bajo"]     = fuzz.trapmf(u_acwr, [0.50, 0.50, 0.70, 0.85])
-    acwr_v["optimo"]   = fuzz.trapmf(u_acwr, [0.78, 0.88, 1.20, 1.30])
-    acwr_v["alto"]     = fuzz.trimf (u_acwr, [1.25, 1.40, 1.55])
-    acwr_v["excesivo"] = fuzz.trapmf(u_acwr, [1.45, 1.55, 1.80, 1.80])
-
-    # Δ% Pérdida VBT
-    delta_v["ganancia"]   = fuzz.trapmf(u_delta, [-20, -20, -5,  0])
-    delta_v["tolerable"]  = fuzz.trapmf(u_delta, [ -2,   0,  8, 12])
-    delta_v["vigilancia"] = fuzz.trimf (u_delta, [ 10,  15, 22])
-    delta_v["alarma"]     = fuzz.trapmf(u_delta, [ 18,  22, 40, 40])
+    acwr      = mma7 / mmc28 if mmc28 > 0 else 1.0
+    delta_pct = ((mma7 - last_vmp) / mma7) * 100 if mma7 > 0 else 0.0
 
     # Z-score mesociclo
-    zmeso_v["muy_bajo"] = fuzz.trapmf(u_zmeso, [-4.0, -4.0, -2.2, -1.5])
-    zmeso_v["bajo"]     = fuzz.trimf (u_zmeso, [-2.0, -1.2, -0.5])
-    zmeso_v["normal"]   = fuzz.trimf (u_zmeso, [-0.8,  0.0,  0.8])
-    zmeso_v["elevado"]  = fuzz.trapmf(u_zmeso, [ 0.6,  1.2,  4.0,  4.0])
+    cutoff_meso = last_date - pd.Timedelta(days=ventana_meso - 1)
+    win_meso    = vmp_daily[vmp_daily.index >= cutoff_meso].dropna()
+    z_meso = (last_vmp - float(win_meso.mean())) / float(win_meso.std()) if len(win_meso) >= 4 and float(win_meso.std()) > 0 else 0.0
 
-    # Pendiente aguda β₇
-    ba_v["neg_fuerte"]   = fuzz.trapmf(u_ba, [-0.25, -0.25, -0.06, -0.025])
-    ba_v["neg_moderada"] = fuzz.trimf (u_ba, [-0.04, -0.015, -0.005])
-    ba_v["estable"]      = fuzz.trimf (u_ba, [-0.008,  0.0,   0.008])
-    ba_v["positiva"]     = fuzz.trapmf(u_ba, [ 0.005,  0.025, 0.25,  0.25])
+    # Pendientes β normalizadas a sesión-equivalente
+    def _beta_calendar(serie_daily, days_back, min_n):
+        cutoff = serie_daily.index[-1] - pd.Timedelta(days=days_back - 1)
+        win = serie_daily[serie_daily.index >= cutoff].dropna()
+        if len(win) < min_n: return 0.0
+        x = (win.index - win.index[0]).days.values.astype(float)
+        slope_d = np.polyfit(x, win.values, 1)[0]
+        avg_gap = np.clip(x[-1] / max(len(x) - 1, 1), _GAP_MIN, _GAP_MAX)
+        return float(slope_d * avg_gap)
 
-    # Pendiente 28d β₂₈
-    b28_v["deterioro"] = fuzz.trapmf(u_b28, [-0.25, -0.25, -0.03, -0.01])
-    b28_v["estable"]   = fuzz.trimf (u_b28, [-0.012,  0.0,   0.012])
-    b28_v["mejora"]    = fuzz.trapmf(u_b28, [ 0.010,  0.03,  0.25,  0.25])
+    beta_aguda = _beta_calendar(vmp_daily, 7, 2)
+    beta_28    = _beta_calendar(vmp_daily, 28, 3)
 
-    # Salida — Estado de Fatiga [0–100]
-    fat_v["critico"]          = fuzz.trapmf(u_fat, [  0,  0, 18, 28])
-    fat_v["fatiga_acumulada"] = fuzz.trimf (u_fat, [ 25, 37, 52])
-    fat_v["alerta_temprana"]  = fuzz.trimf (u_fat, [ 50, 62, 76])
-    fat_v["optimo"]           = fuzz.trapmf(u_fat, [ 75, 88, 100, 100])
+    # Índice de Calidad de Dato (DQI)
+    n_7d  = int(vmp_daily[vmp_daily.index >= (last_date - pd.Timedelta(days=6))].notna().sum())
+    n_28d = int(vmp_daily[vmp_daily.index >= (last_date - pd.Timedelta(days=27))].notna().sum())
+    dqi   = _DQI_W7 * min(1.0, n_7d / _REF_7D) + _DQI_W28 * min(1.0, n_28d / _REF_28D)
 
-    return acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v
+    if dqi >= 0.80: calidad = "alta"
+    elif dqi >= 0.50: calidad = "media"
+    elif dqi >= 0.20: calidad = "baja"
+    else: calidad = "insuficiente"
 
+    hoy = pd.Timestamp.today().normalize()
+    
+    return {
+        "atleta": atleta, "n_sesiones": n, "ultima_fecha": str(last_date)[:10],
+        "dias_sin_datos": int((hoy - last_date).days), "vmp_hoy": last_vmp,
+        "mma7": mma7, "mmc28": mmc28, "acwr": float(np.clip(acwr, 0.50, 1.80)),
+        "delta_pct": float(np.clip(delta_pct, -20, 40)), "z_meso": float(np.clip(z_meso, -4.0, 4.0)),
+        "beta_aguda": float(np.clip(beta_aguda, -0.25, 0.25)), "beta_28": float(np.clip(beta_28, -0.25, 0.25)),
+        "dqi": round(dqi, 3), "calidad_dato": calidad,
+        "historial": vmp_series.values.tolist(), "fechas": vmp_series.index.tolist()
+    }
 
-def construir_reglas(acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v):
-    """16 reglas IF-THEN del motor Mamdani. NO MODIFICAR."""
-    return [
-        # CRÍTICO
-        ctrl.Rule(acwr_v["bajo"]     & delta_v["alarma"]     & ba_v["neg_fuerte"],                      fat_v["critico"]),
-        ctrl.Rule(acwr_v["bajo"]     & b28_v["deterioro"]    & ba_v["neg_fuerte"],                      fat_v["critico"]),
-        ctrl.Rule(delta_v["alarma"]  & b28_v["deterioro"]    & zmeso_v["muy_bajo"],                     fat_v["critico"]),
-        ctrl.Rule(acwr_v["excesivo"],                                                                    fat_v["critico"]),
-        # FATIGA ACUMULADA
-        ctrl.Rule(acwr_v["bajo"]     & delta_v["alarma"],                                               fat_v["fatiga_acumulada"]),
-        ctrl.Rule(acwr_v["bajo"]     & delta_v["vigilancia"] & b28_v["deterioro"],                      fat_v["fatiga_acumulada"]),
-        ctrl.Rule(acwr_v["optimo"]   & ba_v["neg_fuerte"]    & zmeso_v["muy_bajo"],                     fat_v["fatiga_acumulada"]),
-        ctrl.Rule(delta_v["alarma"]  & ba_v["neg_moderada"],                                            fat_v["fatiga_acumulada"]),
-        ctrl.Rule(acwr_v["alto"]     & delta_v["vigilancia"] & b28_v["deterioro"],                      fat_v["fatiga_acumulada"]),
-        # ALERTA TEMPRANA
-        ctrl.Rule(delta_v["vigilancia"] & ba_v["neg_moderada"] & zmeso_v["normal"],                     fat_v["alerta_temprana"]),
-        ctrl.Rule(acwr_v["optimo"]   & zmeso_v["bajo"]       & delta_v["vigilancia"],                   fat_v["alerta_temprana"]),
-        ctrl.Rule(acwr_v["alto"]     & ba_v["estable"]       & delta_v["tolerable"],                    fat_v["alerta_temprana"]),
-        ctrl.Rule(b28_v["deterioro"] & delta_v["tolerable"]  & zmeso_v["bajo"],                        fat_v["alerta_temprana"]),
-        # ÓPTIMO
-        ctrl.Rule(acwr_v["optimo"]   & delta_v["tolerable"]  & ba_v["positiva"] & b28_v["mejora"],      fat_v["optimo"]),
-        ctrl.Rule(acwr_v["optimo"]   & delta_v["ganancia"]   & b28_v["estable"],                        fat_v["optimo"]),
-        ctrl.Rule(acwr_v["optimo"]   & zmeso_v["normal"]     & ba_v["estable"]  & delta_v["tolerable"], fat_v["optimo"]),
-    ]
-
-
-@st.cache_resource
-def construir_motor_fuzzy():
-    """
-    Construye y cachea el motor completo en un solo paso.
-    Incluye variables, reglas, sistema y simulador.
-    Se ejecuta UNA sola vez por sesión de servidor.
-    """
-    vars_tuple = construir_sistema_fuzzy()
-    acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v = vars_tuple
-    reglas    = construir_reglas(acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v)
-    sistema   = ctrl.ControlSystem(reglas)
-    simulador = ctrl.ControlSystemSimulation(sistema)
-    return vars_tuple, simulador
-
+# (MANTENER LAS FUNCIONES construir_sistema_fuzzy, construir_reglas y construir_motor_fuzzy INTACTAS)
 
 def evaluar_atleta(simulador, metricas: dict) -> dict:
-    """Corre el motor difuso y clasifica el índice de salida."""
+    """Corre el motor difuso y aplica penalizaciones por resiliencia temporal."""
     try:
-        simulador.input["acwr"]       = np.clip(metricas["acwr"],       0.50,  1.80)
-        simulador.input["delta_pct"]  = np.clip(metricas["delta_pct"], -20,   40)
-        simulador.input["z_meso"]     = np.clip(metricas["z_meso"],    -4.0,   4.0)
-        simulador.input["beta_aguda"] = np.clip(metricas["beta_aguda"], -0.25, 0.25)
-        simulador.input["beta_28"]    = np.clip(metricas["beta_28"],   -0.25, 0.25)
+        simulador.input["acwr"]       = metricas["acwr"]
+        simulador.input["delta_pct"]  = metricas["delta_pct"]
+        simulador.input["z_meso"]     = metricas["z_meso"]
+        simulador.input["beta_aguda"] = metricas["beta_aguda"]
+        simulador.input["beta_28"]    = metricas["beta_28"]
         simulador.compute()
         indice = simulador.output["fatiga"]
     except Exception:
         indice = 50.0
 
+    calidad = metricas.get("calidad_dato", "alta")
+    dias_sin_datos = metricas.get("dias_sin_datos", 0)
+
+    # Penalización del índice cuando la calidad del dato es insuficiente
+    if calidad == "insuficiente":
+        indice = min(indice, 62.0) # Bloquea el estado "ÓPTIMO" si no hay datos
+        accion_extra = "⚠ Datos insuficientes (<4 ses recientes). "
+    elif calidad == "baja" and dias_sin_datos > 7:
+        accion_extra = f"⚠ Datos desactualizados ({dias_sin_datos}d). "
+    else:
+        accion_extra = ""
+
     if indice >= 75:
-        estado = "🟢 ÓPTIMO";           color = "#16a34a"; accion = "Entrenamiento normal. Posible progresión."
+        estado = "🟢 ÓPTIMO"; color = "#16a34a"; accion = "Entrenamiento normal. Posible progresión."
     elif indice >= 50:
-        estado = "🟡 ALERTA TEMPRANA";  color = "#ca8a04"; accion = "Reducir 10–15%. Monitoreo estrecho."
+        estado = "🟡 ALERTA TEMPRANA"; color = "#ca8a04"; accion = "Reducir 10–15%. Monitoreo estrecho."
     elif indice >= 25:
         estado = "🟠 FATIGA ACUMULADA"; color = "#ea580c"; accion = "Sesión regenerativa. Sin carga intensa."
     else:
-        estado = "🔴 CRÍTICO";          color = "#dc2626"; accion = "Descanso obligatorio / evaluación médica."
+        estado = "🔴 CRÍTICO"; color = "#dc2626"; accion = "Descanso obligatorio / evaluación médica."
 
     return {**metricas, "indice_fatiga": round(indice, 1),
-            "estado": estado, "color": color, "accion": accion}
+            "estado": estado, "color": color, "accion": accion_extra + accion}
 
 
 # =============================================================================
@@ -416,9 +363,14 @@ def render_sidebar() -> dict:
     return {"ventana_meso": ventana_meso}
 
 
+Aquí tienes la **SECCIÓN 7** completa e integrada. He tomado tu código base, he limpiado los espacios invisibles (que a veces causan errores de sintaxis en Python al copiar y pegar), y he inyectado la lógica del **DQI (Índice de Calidad de Dato)** tanto en la tarjeta visual del atleta como en la tabla exportable a CSV.
+
+Reemplaza toda tu SECCIÓN 7 actual con el siguiente bloque:
+
 # =============================================================================
 #  SECCIÓN 7 — TAB: DASHBOARD
 # =============================================================================
+from datetime import date # Asegúrate de que esté importado al inicio de tu app.py si no lo está
 
 def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
     atletas    = sorted(df_raw["Nombre"].unique())
@@ -447,23 +399,27 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
 
     # ── Tabla resumen + descarga ───────────────────────────────────────────────
     st.markdown("## 📋 Tabla de Resultados")
+    # Agregamos dqi y calidad_dato a la tabla para que se puedan exportar
     cols = ["atleta","vmp_hoy","acwr","delta_pct","z_meso","beta_aguda","beta_28",
-            "indice_fatiga","estado","accion","ultima_fecha"]
+            "dqi", "calidad_dato", "indice_fatiga","estado","accion","ultima_fecha"]
     df_t = (
         df_res[cols]
         .rename(columns={
             "atleta":"Atleta", "vmp_hoy":"VMP Hoy", "acwr":"ACWR",
             "delta_pct":"Δ% VBT", "z_meso":"Z Meso",
             "beta_aguda":"β₇", "beta_28":"β₂₈",
+            "dqi":"DQI", "calidad_dato":"Calidad",
             "indice_fatiga":"Índice", "estado":"Estado", "accion":"Acción",
             "ultima_fecha":"Última Sesión",
         })
         .sort_values("Índice")
     )
+    
     st.dataframe(
         df_t.style.format({
             "VMP Hoy":"{:.3f}", "ACWR":"{:.3f}", "Δ% VBT":"{:+.1f}%",
-            "Z Meso":"{:+.2f}", "β₇":"{:+.4f}", "β₂₈":"{:+.4f}", "Índice":"{:.1f}"
+            "Z Meso":"{:+.2f}", "β₇":"{:+.4f}", "β₂₈":"{:+.4f}", 
+            "DQI":"{:.2f}", "Índice":"{:.1f}"
         }),
         use_container_width=True, hide_index=True
     )
@@ -489,29 +445,38 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
         if m is None:
             st.warning("Datos insuficientes (mínimo 4 sesiones).")
             return
+            
         m["estado"]        = row["estado"]
         m["color"]         = row["color"]
         m["indice_fatiga"] = row["indice_fatiga"]
         m["mma7"]          = row["mma7"]
 
         col_info, col_vars = st.columns([1, 2])
+        
+        # --- AQUÍ INTEGRAMOS LA TARJETA CON EL DQI ---
         with col_info:
             color = row["color"]
+            calidad_badge = {
+                "alta": "🟢 Confianza Alta", "media": "🟡 Confianza Media", 
+                "baja": "🟠 Confianza Baja", "insuficiente": "🔴 Datos Insuficientes"
+            }.get(row.get("calidad_dato", "media"), "")
+
             st.markdown(f"""
-<div style="background:#1e293b;border-radius:12px;padding:20px;
-     border-left:5px solid {color};text-align:center;">
-  <div style="font-size:32px;font-weight:900;color:{color};">{row['indice_fatiga']:.0f}</div>
-  <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Índice de Fatiga</div>
-  <div style="font-size:15px;font-weight:700;color:{color};margin-top:8px;">{row['estado']}</div>
-  <div style="font-size:12px;color:#94a3b8;margin-top:8px;line-height:1.5;">{row['accion']}</div>
-  <div style="font-size:11px;color:#475569;margin-top:10px;">Última sesión: {row.get('ultima_fecha','—')}</div>
-</div>
-""", unsafe_allow_html=True)
+            <div style="background:#1e293b;border-radius:12px;padding:20px;
+                 border-left:5px solid {color};text-align:center;">
+              <div style="font-size:32px;font-weight:900;color:{color};">{row['indice_fatiga']:.0f}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Índice de Fatiga</div>
+              <div style="font-size:15px;font-weight:700;color:{color};margin-top:8px;">{row['estado']}</div>
+              <div style="font-size:12px;color:#94a3b8;margin-top:8px;line-height:1.5;">{row['accion']}</div>
+              <div style="font-size:11px;color:#475569;margin-top:10px;">Última sesión: {row.get('ultima_fecha','—')}</div>
+              <div style="font-size:11px;color:#94a3b8;margin-top:5px;">DQI: {row.get('dqi', 0):.2f} ({calidad_badge})</div>
+            </div>
+            """, unsafe_allow_html=True)
 
         with col_vars:
             st.markdown("#### Variables del Modelo")
             d1, d2, d3 = st.columns(3)
-            d1.metric("ACWR",    f"{row['acwr']:.3f}",       help="Zona segura pediátrica: 0.92–1.10")
+            d1.metric("ACWR",    f"{row['acwr']:.3f}",        help="Zona segura pediátrica: 0.92–1.10")
             d2.metric("Δ% VBT",  f"{row['delta_pct']:+.1f}%", help=">20% = alarma VBT")
             d3.metric("Z Meso",  f"{row['z_meso']:+.2f}")
             d4, d5, d6 = st.columns(3)
@@ -525,7 +490,7 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
         with st.expander("📅 Ver historial de sesiones (últimas 20)"):
             sub = df_raw[df_raw["Nombre"] == sel][["Fecha","VMP_Hoy"]].tail(20)
             st.dataframe(sub.sort_values("Fecha", ascending=False)
-                           .style.format({"VMP_Hoy":"{:.3f}"}),
+                            .style.format({"VMP_Hoy":"{:.3f}"}),
                          use_container_width=True, hide_index=True)
 
     # ── Funciones de pertenencia ──────────────────────────────────────────────
@@ -533,7 +498,12 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
         st.pyplot(fig_membership(vars_tuple))
 
     return df_res
+```
 
+### Cambios principales aplicados:
+1. **Prevención de IndentationError:** He cambiado los espacios especiales de tu prompt por indentación estándar de 4 espacios. 
+2. **Exportación de datos:** Modifiqué la lista `cols` para que la tabla principal en el dashboard (y el CSV que descargas) contengan las columnas `DQI` y `Calidad`.
+3. **Badge Visual:** Integré la lógica del `calidad_badge` que lee el valor de confiabilidad del parche de resiliencia y lo inyecta como HTML en la tarjeta resumen del atleta seleccionado.
 
 # =============================================================================
 #  SECCIÓN 8 — TAB: INGRESO DE DATOS
