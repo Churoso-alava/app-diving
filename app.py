@@ -355,23 +355,27 @@ def fig_tendencia(m: dict) -> plt.Figure:
     for sp in ax.spines.values(): sp.set_color("#334155")
     ax.tick_params(colors="#94a3b8", labelsize=8)
     xs = range(n)
-    ax.plot(xs, vmp,    color="#38bdf8", lw=1.5, alpha=0.6, label="VMP diario")
+    
+    ax.plot(xs, vmp,    color="#38bdf8", lw=1.5, alpha=0.6, label="Velocidad del Día (VMP)")
     ax.scatter(xs, vmp, color="#38bdf8", s=22, zorder=5)
-    ax.plot(xs, mma7s,  color="#fb923c", lw=2, label="MMA₇")
-    ax.plot(xs, mmc28s, color="#a78bfa", lw=2, label="MMC₂₈")
+    ax.plot(xs, mma7s,  color="#fb923c", lw=2, label="Fatiga a Corto Plazo (Últimos 7 días)")
+    ax.plot(xs, mmc28s, color="#a78bfa", lw=2, label="Estado Físico Base (Últimos 28 días)")
+    
     ax.axvline(n - 1, color=m["color"], lw=1.5, linestyle="--", alpha=0.7)
     ax.scatter([n - 1], [vmp[-1]], color=m["color"], s=70, zorder=6)
+    
     if m["mma7"] > 0:
         umbral = m["mma7"] * 0.80
-        ax.axhline(umbral, color="#f87171", lw=1, linestyle=":", alpha=0.7, label="Umbral alarma (−20%)")
+        ax.axhline(umbral, color="#f87171", lw=1, linestyle=":", alpha=0.7, label="Zona de Riesgo (Caída > 20%)")
+        
     xticks = list(range(0, n, max(1, n // 10)))
     ax.set_xticks(xticks)
     ax.set_xticklabels(
         [str(fechas[i])[:10] if i < len(fechas) else "" for i in xticks],
         rotation=35, ha="right", fontsize=7.5, color="#94a3b8"
     )
-    ax.set_ylabel("VMP (m/s)", color="#94a3b8", fontsize=9)
-    ax.set_title(f"Tendencia VMP — {m['atleta']}", color="white", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Velocidad Máxima (m/s)", color="#94a3b8", fontsize=9)
+    ax.set_title(f"Evolución del Rendimiento y Carga — {m['atleta']}", color="white", fontsize=12, fontweight="bold")
     ax.legend(fontsize=8, labelcolor="white", facecolor="#0f172a", edgecolor="#334155")
     plt.tight_layout()
     return fig
@@ -406,7 +410,6 @@ def fig_membership(vars_tuple) -> plt.Figure:
                  color="white", fontsize=12, fontweight="bold", y=1.01)
     plt.tight_layout()
     return fig
-
 
 # =============================================================================
 #  SECCIÓN 6 — SIDEBAR
@@ -521,6 +524,7 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
         if m is None:
             st.warning("Datos insuficientes (mínimo 4 sesiones).")
             return
+        
         m["estado"]        = row["estado"]
         m["color"]         = row["color"]
         m["indice_fatiga"] = row["indice_fatiga"]
@@ -547,15 +551,35 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
             """, unsafe_allow_html=True)
 
         with col_vars:
-            st.markdown("#### Variables del Modelo")
+            st.markdown("#### ¿Qué significan estos datos?")
             d1, d2, d3 = st.columns(3)
-            d1.metric("ACWR",    f"{row['acwr']:.3f}",       help="Zona segura pediátrica: 0.92–1.10")
-            d2.metric("Δ% VBT",  f"{row['delta_pct']:+.1f}%", help=">20% = alarma VBT")
-            d3.metric("Z Meso",  f"{row['z_meso']:+.2f}")
+            
+            d1.metric(
+                "Carga Aguda/Crónica", f"{row['acwr']:.3f}",        
+                help="ACWR: Compara el esfuerzo reciente (7 días) contra la base física (28 días). Ideal entre 0.92 y 1.10. Menos de 0.8 indica desentrenamiento; más de 1.5 es sobreesfuerzo."
+            )
+            d2.metric(
+                "Pérdida de Velocidad", f"{row['delta_pct']:+.1f}%", 
+                help="Δ% VBT: Cuánto bajó o subió la velocidad hoy respecto al promedio reciente. Si cae más de 20%, el atleta tiene fatiga nerviosa."
+            )
+            d3.metric(
+                "Desviación del Mesociclo", f"{row['z_meso']:+.2f}",
+                help="Z-Score: Compara el rendimiento de hoy con el mes completo. Valores negativos indican que hoy está rindiendo por debajo de lo normal."
+            )
+            
             d4, d5, d6 = st.columns(3)
-            d4.metric("β₇",         f"{row['beta_aguda']:+.4f} m/s·ses⁻¹")
-            d5.metric("β₂₈",        f"{row['beta_28']:+.4f} m/s·ses⁻¹")
-            d6.metric("N sesiones",  int(row["n_sesiones"]))
+            d4.metric(
+                "Tendencia Semanal", f"{row['beta_aguda']:+.4f}",
+                help="β₇: Dirección del rendimiento en la última semana. Positivo = ganando velocidad. Negativo = perdiendo velocidad rápidamente."
+            )
+            d5.metric(
+                "Tendencia Mensual", f"{row['beta_28']:+.4f}",
+                help="β₂₈: Dirección del rendimiento a largo plazo (28 días). Indica si el atleta se está adaptando positivamente al plan de entrenamiento."
+            )
+            d6.metric(
+                "Total de Entrenamientos", int(row["n_sesiones"]),
+                help="Cantidad total de sesiones registradas para este atleta en la base de datos."
+            )
 
         st.markdown("#### Tendencia VMP")
         st.pyplot(fig_tendencia(m))
@@ -571,7 +595,6 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
         st.pyplot(fig_membership(vars_tuple))
 
     return df_res
-
 
 # =============================================================================
 #  SECCIÓN 8 — TAB: INGRESO DE DATOS
