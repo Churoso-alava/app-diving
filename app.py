@@ -494,12 +494,11 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
         st.pyplot(fig_membership(vars_tuple))
 
     return df_res
-```
 
 ### Cambios principales aplicados:
-1. **Prevención de IndentationError:** He cambiado los espacios especiales de tu prompt por indentación estándar de 4 espacios. 
-2. **Exportación de datos:** Modifiqué la lista `cols` para que la tabla principal en el dashboard (y el CSV que descargas) contengan las columnas `DQI` y `Calidad`.
-3. **Badge Visual:** Integré la lógica del `calidad_badge` que lee el valor de confiabilidad del parche de resiliencia y lo inyecta como HTML en la tarjeta resumen del atleta seleccionado.
+#1. **Prevención de IndentationError:** He cambiado los espacios especiales de tu prompt por indentación estándar de 4 espacios. 
+#2. **Exportación de datos:** Modifiqué la lista `cols` para que la tabla principal en el dashboard (y el CSV que descargas) contengan las columnas `DQI` y `Calidad`.
+#3. **Badge Visual:** Integré la lógica del `calidad_badge` que lee el valor de confiabilidad del parche de resiliencia y lo inyecta como HTML en la tarjeta resumen del atleta seleccionado.
 
 # =============================================================================
 #  SECCIÓN 8 — TAB: INGRESO DE DATOS
