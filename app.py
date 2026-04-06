@@ -244,24 +244,46 @@ def construir_sistema_fuzzy():
 
 
 def construir_reglas(acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v):
-    """16 reglas IF-THEN del motor Mamdani. NO MODIFICAR."""
+    """21 reglas IF-THEN del motor Mamdani v4.
+    Cambios vs v3:
+      - Regla 4 corregida: ACWR excesivo requiere Z-meso bajo/muy_bajo para ser CRÍTICO.
+      - [A] Veto Z-meso: Z-meso muy_bajo solo → CRÍTICO (elimina falsos negativos).
+      - [B] Protección tapering: ACWR bajo/óptimo + Z-meso elevado + beta estable → ÓPTIMO.
+      - [C] SSENF enmascarado: β28 deterioro + β7 negativa + Z-meso bajo → FATIGA ACUMULADA.
+      - [D] ACWR excesivo con rendimiento normal → FATIGA ACUMULADA (no CRÍTICO).
+      - [E] Divergencia corto/largo plazo: β7 neg_fuerte + β28 estable + Z normal → ALERTA.
+    """
     return [
-        ctrl.Rule(acwr_v["bajo"]     & delta_v["alarma"]     & ba_v["neg_fuerte"],                      fat_v["critico"]),
-        ctrl.Rule(acwr_v["bajo"]     & b28_v["deterioro"]    & ba_v["neg_fuerte"],                      fat_v["critico"]),
-        ctrl.Rule(delta_v["alarma"]  & b28_v["deterioro"]    & zmeso_v["muy_bajo"],                     fat_v["critico"]),
-        ctrl.Rule(acwr_v["excesivo"],                                                                    fat_v["critico"]),
-        ctrl.Rule(acwr_v["bajo"]     & delta_v["alarma"],                                               fat_v["fatiga_acumulada"]),
-        ctrl.Rule(acwr_v["bajo"]     & delta_v["vigilancia"] & b28_v["deterioro"],                      fat_v["fatiga_acumulada"]),
-        ctrl.Rule(acwr_v["optimo"]   & ba_v["neg_fuerte"]    & zmeso_v["muy_bajo"],                     fat_v["fatiga_acumulada"]),
-        ctrl.Rule(delta_v["alarma"]  & ba_v["neg_moderada"],                                            fat_v["fatiga_acumulada"]),
-        ctrl.Rule(acwr_v["alto"]     & delta_v["vigilancia"] & b28_v["deterioro"],                      fat_v["fatiga_acumulada"]),
-        ctrl.Rule(delta_v["vigilancia"] & ba_v["neg_moderada"] & zmeso_v["normal"],                     fat_v["alerta_temprana"]),
-        ctrl.Rule(acwr_v["optimo"]   & zmeso_v["bajo"]       & delta_v["vigilancia"],                   fat_v["alerta_temprana"]),
-        ctrl.Rule(acwr_v["alto"]     & ba_v["estable"]       & delta_v["tolerable"],                    fat_v["alerta_temprana"]),
-        ctrl.Rule(b28_v["deterioro"] & delta_v["tolerable"]  & zmeso_v["bajo"],                        fat_v["alerta_temprana"]),
-        ctrl.Rule(acwr_v["optimo"]   & delta_v["tolerable"]  & ba_v["positiva"] & b28_v["mejora"],      fat_v["optimo"]),
-        ctrl.Rule(acwr_v["optimo"]   & delta_v["ganancia"]   & b28_v["estable"],                        fat_v["optimo"]),
-        ctrl.Rule(acwr_v["optimo"]   & zmeso_v["normal"]     & ba_v["estable"]  & delta_v["tolerable"], fat_v["optimo"]),
+        # ── BLOQUE CRÍTICO ────────────────────────────────────────────────────
+        ctrl.Rule(acwr_v["bajo"]     & delta_v["alarma"]    & ba_v["neg_fuerte"],                       fat_v["critico"]),          # R01 original
+        ctrl.Rule(acwr_v["bajo"]     & b28_v["deterioro"]   & ba_v["neg_fuerte"],                       fat_v["critico"]),          # R02 original
+        ctrl.Rule(delta_v["alarma"]  & b28_v["deterioro"]   & zmeso_v["muy_bajo"],                      fat_v["critico"]),          # R03 original
+        ctrl.Rule(acwr_v["excesivo"] & (zmeso_v["muy_bajo"] | zmeso_v["bajo"]),                         fat_v["critico"]),          # R04 modificada (antes sin condición de Z-meso)
+        ctrl.Rule(zmeso_v["muy_bajo"],                                                                   fat_v["critico"]),          # R05 [A] NUEVA — veto Z-meso absoluto
+
+        # ── BLOQUE FATIGA ACUMULADA ───────────────────────────────────────────
+        ctrl.Rule(acwr_v["bajo"]     & delta_v["alarma"],                                               fat_v["fatiga_acumulada"]), # R06 original
+        ctrl.Rule(acwr_v["bajo"]     & delta_v["vigilancia"] & b28_v["deterioro"],                      fat_v["fatiga_acumulada"]), # R07 original
+        ctrl.Rule(acwr_v["optimo"]   & ba_v["neg_fuerte"]   & zmeso_v["muy_bajo"],                      fat_v["fatiga_acumulada"]), # R08 original
+        ctrl.Rule(delta_v["alarma"]  & ba_v["neg_moderada"],                                            fat_v["fatiga_acumulada"]), # R09 original
+        ctrl.Rule(acwr_v["alto"]     & delta_v["vigilancia"] & b28_v["deterioro"],                      fat_v["fatiga_acumulada"]), # R10 original
+        ctrl.Rule(acwr_v["excesivo"] & zmeso_v["normal"],                                               fat_v["fatiga_acumulada"]), # R11 [D] NUEVA — ACWR excesivo con rendimiento normal
+        ctrl.Rule(b28_v["deterioro"] & (ba_v["neg_fuerte"] | ba_v["neg_moderada"])
+                                     & (zmeso_v["bajo"]    | zmeso_v["muy_bajo"]),                      fat_v["fatiga_acumulada"]), # R12 [C] NUEVA — SSENF enmascarado por carga controlada
+
+        # ── BLOQUE ALERTA TEMPRANA ────────────────────────────────────────────
+        ctrl.Rule(delta_v["vigilancia"] & ba_v["neg_moderada"] & zmeso_v["normal"],                     fat_v["alerta_temprana"]), # R13 original
+        ctrl.Rule(acwr_v["optimo"]   & zmeso_v["bajo"]      & delta_v["vigilancia"],                    fat_v["alerta_temprana"]), # R14 original
+        ctrl.Rule(acwr_v["alto"]     & ba_v["estable"]      & delta_v["tolerable"],                     fat_v["alerta_temprana"]), # R15 original
+        ctrl.Rule(b28_v["deterioro"] & delta_v["tolerable"] & zmeso_v["bajo"],                          fat_v["alerta_temprana"]), # R16 original
+        ctrl.Rule(ba_v["neg_fuerte"] & b28_v["estable"]     & zmeso_v["normal"],                        fat_v["alerta_temprana"]), # R17 [E] NUEVA — caída aguda sobre base sólida
+
+        # ── BLOQUE ÓPTIMO ─────────────────────────────────────────────────────
+        ctrl.Rule(acwr_v["optimo"]   & delta_v["tolerable"] & ba_v["positiva"] & b28_v["mejora"],       fat_v["optimo"]),          # R18 original
+        ctrl.Rule(acwr_v["optimo"]   & delta_v["ganancia"]  & b28_v["estable"],                         fat_v["optimo"]),          # R19 original
+        ctrl.Rule(acwr_v["optimo"]   & zmeso_v["normal"]    & ba_v["estable"]  & delta_v["tolerable"],  fat_v["optimo"]),          # R20 original
+        ctrl.Rule((acwr_v["bajo"]    | acwr_v["optimo"])    & zmeso_v["elevado"]
+                                     & (ba_v["estable"]    | ba_v["positiva"]),                         fat_v["optimo"]),          # R21 [B] NUEVA — protección tapering / supercompensación
     ]
 
 
@@ -445,7 +467,7 @@ def render_sidebar() -> dict:
 | 5 | β Tendencia | 28 sesiones |
 """)
         st.divider()
-        st.caption("Mamdani · 5 entradas · 16 reglas · COG defuzz.")
+        st.caption("Mamdani · 5 entradas · 21 reglas · COG defuzz.")
     return {"ventana_meso": ventana_meso}
 
 
@@ -810,7 +832,7 @@ def main():
     st.markdown(
         "<h1 style='text-align:center;color:#38bdf8;'>⚡ Dashboard de Fatiga</h1>"
         "<h3 style='text-align:center;color:#64748b;margin-top:-10px;'>"
-        "Club Tornados · Modelo Fuzzy Mamdani v3 (Resiliente)</h3>",
+        "Club Tornados · Modelo Fuzzy Mamdani v4 (Resiliente)</h3>",
         unsafe_allow_html=True
     )
 
@@ -858,7 +880,7 @@ def main():
 
     st.markdown("---")
     st.caption(
-        "Modelo Fuzzy Mamdani · 5 variables · 16 reglas · Defuzzificación COG · "
+        "Modelo Fuzzy Mamdani v4 · 5 variables · 21 reglas · Defuzzificación COG · "
         "Umbrales ACWR pediátricos (0.92–1.10) · Δ% VBT (Sánchez-Medina & González-Badillo) · "
         "**Motor Resiliente Activo (DQI)**"
     )
