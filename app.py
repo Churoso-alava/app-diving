@@ -188,7 +188,8 @@ def fig_semaforo(valor_fatiga: float):
 
     ax.set_xlim(0, 100)
     ax.set_yticks([])
-    ax.set_xticks([0, 25, 50, 75, 100])
+    # Centramos las 4 marcas en medio de cada zona para que coincidan con las 4 etiquetas
+    ax.set_xticks([12.5, 37.5, 62.5, 87.5])
     ax.set_xticklabels(['Óptimo', 'Estable', 'Alerta', 'Crítico'], fontsize=8)
     
     apply_obsidian_style(fig, ax)
