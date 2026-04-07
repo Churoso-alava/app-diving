@@ -4,21 +4,22 @@ Lógica de negocio → services.py | Motor difuso → fuzzy.py | Base de datos �
 """
 import logging
 import warnings
-from datetime import date
+from datetime import date, timedelta
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import skfuzzy as fuzz
 import streamlit as st
 
 import db
 import fuzzy as fz
-from services import SessionInput, calcular_metricas
+from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
 
 warnings.filterwarnings("ignore")
 
 # =============================================================================
-#  LOGGING
+#  LOGGING — Fase 4
 # =============================================================================
 
 logging.basicConfig(
@@ -29,7 +30,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # =============================================================================
-#  CONFIGURACIÓN DE PÁGINA
+#  CONFIGURACIÓN DE PÁGINA  (debe ir ANTES de cualquier otro st.*)
 # =============================================================================
 
 st.set_page_config(
@@ -44,239 +45,712 @@ st.markdown("""
   .block-container { padding-top: 1.2rem; }
   .stTabs [data-baseweb="tab-list"] { gap: 8px; }
   .stTabs [data-baseweb="tab"] {
-    background: #1e293b; border-radius: 6px 6px 0 0; 
-    padding: 10px 20px; color: #cbd5e1; font-weight: 500;
+    background: #1e293b; border-radius: 6px 6px 0 0;
+    color: #94a3b8; padding: 8px 20px; font-weight: 600;
   }
-  .stTabs [data-baseweb="tab"][aria-selected="true"] {
-    background: #3b82f6; color: white;
+  .stTabs [aria-selected="true"] { background: #0f172a; color: #38bdf8; }
+  .stDataFrame { font-size: 13px; }
+  div[data-testid="metric-container"] {
+    background: #1e293b; border-radius: 8px; padding: 12px; border-left: 3px solid #334155;
+  }
+  .form-card {
+    background: #1e293b; border-radius: 10px; padding: 20px;
+    border: 1px solid #334155; margin-bottom: 16px;
   }
 </style>
 """, unsafe_allow_html=True)
 
-# =============================================================================
-#  UTILS: GRÁFICOS (MATPLOTLIB)
-# =============================================================================
-
-def fig_semaforo(valor_fatiga: float):
-    """Gauge horizontal para el índice de fatiga."""
-    fig, ax = plt.subplots(figsize=(6, 1.2))
-    fig.patch.set_facecolor('#0e1117')
-    ax.set_facecolor('#0e1117')
-    
-    colors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444']
-    boundaries = [0, 25, 50, 75, 100]
-
-    for i in range(len(colors)):
-        ax.barh(0, boundaries[i+1]-boundaries[i], left=boundaries[i], 
-                color=colors[i], alpha=0.3, height=0.4)
-
-    ax.scatter(valor_fatiga, 0, color='white', s=150, zorder=5, edgecolors='black')
-    ax.axvline(valor_fatiga, color='white', linestyle='--', linewidth=1)
-
-    ax.set_xlim(0, 100)
-    ax.set_yticks([])
-    ax.set_xticks([12.5, 37.5, 62.5, 87.5])
-    ax.set_xticklabels(['Óptimo', 'Estable', 'Alerta', 'Crítico'], color='white', fontsize=8)
-    
-    for spine in ['top', 'right', 'left', 'bottom']:
-        ax.spines[spine].set_color('#333333')
-        
-    ax.tick_params(axis='x', colors='white')
-    plt.tight_layout()
-    return fig
-
-def fig_tendencia(fechas, historial):
-    """Gráfico de línea mostrando evolución de VMP."""
-    fig, ax = plt.subplots(figsize=(7, 3))
-    fig.patch.set_facecolor('#0e1117')
-    ax.set_facecolor('#0e1117')
-    
-    if not historial or not fechas:
-        ax.text(0.5, 0.5, "Sin datos de tendencia suficientes", color='white', 
-                ha='center', va='center', transform=ax.transAxes)
-    else:
-        ax.plot(fechas, historial, marker='o', color='#3b82f6', linewidth=2, markersize=5)
-        ax.fill_between(fechas, historial, color='#3b82f6', alpha=0.1)
-        ax.grid(True, axis='y', linestyle=':', alpha=0.2, color='white')
-        plt.xticks(rotation=45, color='white')
-        plt.yticks(color='white')
-        ax.set_ylabel("VMP (m/s)", color='white')
-        
-    for spine in ['top', 'right', 'left', 'bottom']:
-        ax.spines[spine].set_color('#333333')
-        
-    plt.tight_layout()
-    return fig
 
 # =============================================================================
-#  VISTAS (TABS)
+#  AUTENTICACIÓN — Fase 1 + Fase 3
+#  check_password usa st.secrets["APP_PASSWORD"] (sin fallback hardcoded).
+#  Cuando se active auth real de Supabase, reemplazar por check_supabase_auth().
 # =============================================================================
 
-def tab_dashboard(df, simulador):
-    st.markdown("### Rendimiento en Tiempo Real")
-    
-    c_atleta, c_vacio = st.columns([1, 2])
-    with c_atleta:
-        atletas_lista = sorted(df["Nombre"].unique().tolist())
-        atleta = st.selectbox("Seleccionar Atleta", atletas_lista)
-        
-    df_atleta = df[df["Nombre"] == atleta].sort_values("Fecha")
-    if df_atleta.empty:
-        st.warning("No hay datos suficientes para este atleta.")
-        return
+def check_password() -> bool:
+    """Autenticación básica por contraseña. Sin fallback hardcoded (Fase 1)."""
+    if st.session_state.get("password_correct"):
+        return True
 
-    # Cálculos Matemáticos
-    metrics = calcular_metricas(df, atleta)
-    
-    if "indice_fatiga" not in metrics and hasattr(fz, 'evaluar_fatiga'):
-        metrics = fz.evaluar_fatiga(metrics, simulador)
+    st.write("🔒 Ingresa la contraseña para acceder")
+    password = st.text_input("Contraseña:", type="password")
 
-    fatiga_val = metrics.get('indice_fatiga', 0.0)
-    estado_lbl = metrics.get('estado', 'Sin Evaluación')
-    acwr_val = metrics.get('acwr', 0.0)
-    delta_val = metrics.get('delta_pct', 0.0)
-    
-    # Fila de métricas
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Índice Fatiga (0-100)", f"{fatiga_val}%")
-    c2.metric("Estado Actual", estado_lbl)
-    c3.metric("ACWR (Carga)", f"{acwr_val:.2f}")
-    c4.metric("Variación VMP", f"{delta_val}%")
+    try:
+        expected = st.secrets["APP_PASSWORD"]   # ← Fase 1: sin default inseguro
+    except KeyError:
+        st.error("⚠️ APP_PASSWORD no configurado en secrets.toml")
+        return False
 
-    st.markdown("---")
-    
-    # Recomendaciones Técnicas
-    st.markdown("#### Recomendación Técnica")
-    st.info(f"**Acción Sugerida:** {metrics.get('accion', 'Mantener rutina actual.')}")
-    
-    for adv in metrics.get('advertencias', []):
-        st.warning(adv)
-
-    # Gráficos
-    st.markdown("<br>", unsafe_allow_html=True)
-    c_graf1, c_graf2 = st.columns(2)
-    with c_graf1:
-        st.markdown("**Estado del Atleta (Semáforo)**")
-        st.pyplot(fig_semaforo(fatiga_val))
-    with c_graf2:
-        st.markdown("**Evolución VMP (m/s)**")
-        fechas = metrics.get("fechas", df_atleta["Fecha"].tolist())
-        historial = metrics.get("historial", df_atleta["VMP_Hoy"].tolist())
-        st.pyplot(fig_tendencia(fechas, historial))
-
-def tab_ingreso(atletas_lista):
-    st.markdown("### ➕ Ingreso de Datos (Sesión)")
-    
-    with st.form("form_sesion", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            nombre = st.selectbox("Atleta", ["-- Seleccionar --"] + atletas_lista)
-            fecha = st.date_input("Fecha", value=date.today())
-        with c2:
-            vmp = st.number_input("VMP_Hoy (m/s)", min_value=0.1, max_value=2.5, value=1.0, step=0.01)
-            notas = st.text_input("Notas (Opcional)")
-        
-        if st.form_submit_button("Guardar Registro", type="primary"):
-            if nombre == "-- Seleccionar --":
-                st.error("Por favor selecciona un atleta.")
-            else:
-                try:
-                    sesion = SessionInput(nombre=nombre, fecha=str(fecha), vmp=float(vmp), notas=notas)
-                    ok, msg = db.insertar_sesion(sesion.nombre, sesion.fecha, sesion.vmp, sesion.notas)
-                    if ok:
-                        st.success(f"✅ {msg}")
-                        st.cache_data.clear()
-                    else:
-                        st.error(msg)
-                except Exception as e:
-                    st.error(f"Error de validación: {e}")
-
-def tab_historial(df, atletas_lista):
-    st.markdown("### ✏️ Historial y Edición")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        f_atleta = st.selectbox("Filtrar por Atleta", ["Todos"] + atletas_lista)
-        
-    df_show = df if f_atleta == "Todos" else df[df["Nombre"] == f_atleta]
-    st.dataframe(df_show.sort_values("Fecha", ascending=False), use_container_width=True, hide_index=True)
-    
-    st.markdown("---")
-    st.markdown("#### 🗑️ Eliminar Registro")
-    
-    df_ids = df_show.dropna(subset=["id"]) if "id" in df_show.columns else df_show
-    if not df_ids.empty:
-        c_del1, c_del2 = st.columns([3, 1])
-        with c_del1:
-            id_borrar = st.selectbox("Seleccione el ID de la sesión a eliminar", df_ids["id"].astype(str).tolist())
-        with c_del2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            # ERROR CORREGIDO AQUI: Se remueve kind="secondary" y se usa type="secondary"
-            if st.button("Eliminar Sesión", type="secondary", use_container_width=True):
-                ok, msg = db.eliminar_sesion(id_borrar)
-                if ok:
-                    st.success(msg)
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error(msg)
-    else:
-        st.info("No hay registros con ID válidos para eliminar.")
-
-def tab_importacion():
-    st.markdown("### 📤 Importar Datos Masivos (CSV)")
-    archivo = st.file_uploader("Sube un archivo CSV con columnas: Nombre, Fecha, VMP_Hoy, notas", type=["csv"])
-    
-    if archivo:
+    if password == expected:
+        st.session_state.password_correct = True
+        # Fase 3/M04: asignar rol desde secrets si está definido
         try:
-            df_import = pd.read_csv(archivo)
-            st.dataframe(df_import.head(3), use_container_width=True)
-            
-            if st.button("Procesar Importación", type="primary"):
-                with st.spinner("Sincronizando con Supabase..."):
-                    insertados, omitidos, errores = db.importar_dataframe(df_import)
-                    st.success(f"✅ Completado: **{insertados}** registros insertados | **{omitidos}** omitidos.")
-                    if errores:
-                        with st.expander("Ver detalles de registros omitidos"):
-                            for err in errores:
-                                st.write(err)
-                    st.cache_data.clear()
-        except Exception as e:
-            st.error(f"Error al leer el archivo: {e}")
+            st.session_state.rol_usuario = st.secrets["ROL_USUARIO"]
+        except KeyError:
+            st.session_state.rol_usuario = "operativo"
+        log.info("Login exitoso. Rol: %s", st.session_state.rol_usuario)
+        st.rerun()
+    elif password:
+        st.error("❌ Contraseña incorrecta")
+        return False
+    return False
+
+
+if not check_password():
+    st.stop()
+
 
 # =============================================================================
-#  APP PRINCIPAL
+#  CARGA DE DATOS CON CACHÉ (TTL 30 s)
 # =============================================================================
 
-@st.cache_data
-def obtener_datos_cached():
+@st.cache_data(ttl=30)
+def cargar_sesiones_cached() -> pd.DataFrame:
     return db.cargar_sesiones()
+
+
+@st.cache_data(ttl=30)
+def cargar_atletas_cached() -> list:
+    return db.cargar_atletas()
+
+
+# =============================================================================
+#  MOTOR FUZZY — cacheado en proceso Streamlit
+# =============================================================================
 
 @st.cache_resource
 def construir_motor_fuzzy_cached():
-    return fz.construir_sistema_fuzzy()
+    return fz.construir_motor_fuzzy()
+
+
+# =============================================================================
+#  GRÁFICOS
+# =============================================================================
+
+def fig_semaforo(df_res: pd.DataFrame) -> plt.Figure:
+    df_p = df_res.sort_values("indice_fatiga").reset_index(drop=True)
+    fig, ax = plt.subplots(figsize=(10, max(4, len(df_p) * 0.9)))
+    fig.patch.set_facecolor("#0f172a")
+    ax.set_facecolor("#0f172a")
+    ax.axis("off")
+    for i, r in df_p.iterrows():
+        y = i * 1.1
+        ax.barh(y, 100, height=0.72, color="#1e293b", left=0, zorder=1)
+        ax.barh(y, r["indice_fatiga"], height=0.72, color=r["color"], alpha=0.88, zorder=2)
+        ax.text(-1.5, y, r["atleta"], va="center", ha="right",
+                fontsize=11, color="white", fontweight="bold")
+        ax.text(r["indice_fatiga"] + 1.5, y, f"{r['indice_fatiga']:.0f}",
+                va="center", fontsize=10, color=r["color"], fontweight="bold")
+        ax.text(72, y, r["estado"].split(" ", 1)[1],
+                va="center", fontsize=8.5, color=r["color"])
+        ax.text(105, y, r.get("ultima_fecha", ""), va="center",
+                fontsize=7.5, color="#64748b")
+    ax.set_xlim(-22, 125)
+    ax.set_ylim(-0.6, len(df_p) * 1.1)
+    ax.set_title("Índice de Fatiga  [0 = Crítico → 100 = Óptimo]",
+                 color="white", fontsize=11, pad=12)
+    plt.tight_layout()
+    return fig
+
+
+def fig_tendencia(m: dict) -> plt.Figure:
+    vmp    = np.array(m["historial"])
+    fechas = m["fechas"]
+    n      = len(vmp)
+    mma7s  = pd.Series(vmp).rolling(7,  min_periods=3).mean().values
+    mmc28s = pd.Series(vmp).rolling(28, min_periods=7).mean().values
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    fig.patch.set_facecolor("#0f172a")
+    ax.set_facecolor("#1e293b")
+    for sp in ax.spines.values():
+        sp.set_color("#334155")
+    ax.tick_params(colors="#94a3b8", labelsize=8)
+
+    xs = range(n)
+    ax.plot(xs, vmp,    color="#38bdf8", lw=1.5, alpha=0.6, label="VMP Fase Propulsiva CMJ (m/s)")
+    ax.scatter(xs, vmp, color="#38bdf8", s=22, zorder=5)
+    ax.plot(xs, mma7s,  color="#fb923c", lw=2, label="Fatiga Aguda — MMA7 (Últimos 7 días)")
+    ax.plot(xs, mmc28s, color="#a78bfa", lw=2, label="Baseline Crónico — MMC28 (Últimos 28 días)")
+    ax.axvline(n - 1, color=m["color"], lw=1.5, linestyle="--", alpha=0.7)
+    ax.scatter([n - 1], [vmp[-1]], color=m["color"], s=70, zorder=6)
+
+    mmc28_val = m.get("mmc28", mma7s[-1] if len(mma7s) > 0 else vmp[-1])
+    if mmc28_val > 0:
+        ax.axhline(mmc28_val * 0.85, color="#f59e0b", lw=1, linestyle=":", alpha=0.8,
+                   label="Umbral Alerta (~15% caída sobre MMC28)")
+        ax.axhline(mmc28_val * 0.75, color="#f87171", lw=1, linestyle=":", alpha=0.8,
+                   label="Umbral Crítico (~25% caída sobre MMC28)")
+
+    xticks = list(range(0, n, max(1, n // 10)))
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(
+        [str(fechas[i])[:10] if i < len(fechas) else "" for i in xticks],
+        rotation=35, ha="right", fontsize=7.5, color="#94a3b8",
+    )
+    ax.set_ylabel("VMP Fase Propulsiva CMJ (m/s)", color="#94a3b8", fontsize=9)
+    ax.set_title(
+        f"Evolución VMP del CMJ — {m['atleta']}  [Δ vs MMC28: {m.get('delta_pct', 0):+.1f}%]",
+        color="white", fontsize=12, fontweight="bold",
+    )
+    ax.legend(fontsize=8, labelcolor="white", facecolor="#0f172a", edgecolor="#334155")
+    plt.tight_layout()
+    return fig
+
+
+def fig_membership(vars_tuple) -> plt.Figure:
+    acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v = vars_tuple
+    configs = [
+        (acwr_v,  ["bajo","optimo","alto","excesivo"],               "ACWR"),
+        (delta_v, ["ganancia","tolerable","vigilancia","alarma"],     "Δ% vs MMC28"),
+        (zmeso_v, ["muy_bajo","bajo","normal","elevado"],             "Z-Score Mesociclo"),
+        (ba_v,    ["neg_fuerte","neg_moderada","estable","positiva"], "Pendiente β₇"),
+        (b28_v,   ["deterioro","estable","mejora"],                   "Pendiente β₂₈"),
+        (fat_v,   ["critico","fatiga_acumulada","alerta_temprana","optimo"], "SALIDA: Fatiga"),
+    ]
+    colores = ["#f87171", "#fb923c", "#34d399", "#38bdf8"]
+    fig, axes = plt.subplots(2, 3, figsize=(14, 7))
+    fig.patch.set_facecolor("#0f172a")
+    for ax, (var, labels, title) in zip(axes.flat, configs):
+        ax.set_facecolor("#1e293b")
+        ax.tick_params(colors="#94a3b8", labelsize=7)
+        for sp in ax.spines.values():
+            sp.set_color("#334155")
+        for label, color in zip(labels, colores):
+            mf = fuzz.interp_membership(var.universe, var[label].mf, var.universe)
+            ax.plot(var.universe, mf, color=color, lw=2, label=label)
+            ax.fill_between(var.universe, mf, alpha=0.07, color=color)
+        ax.set_title(title, color="white", fontsize=9, fontweight="bold", pad=6)
+        ax.legend(fontsize=6.5, labelcolor="white", facecolor="#0f172a",
+                  edgecolor="#334155", loc="upper right")
+        ax.set_ylim(-0.05, 1.1)
+    plt.suptitle("Funciones de Pertenencia — Modelo Fuzzy Mamdani v4.1",
+                 color="white", fontsize=12, fontweight="bold", y=1.01)
+    plt.tight_layout()
+    return fig
+
+
+# =============================================================================
+#  SIDEBAR
+# =============================================================================
+
+def render_sidebar() -> dict:
+    with st.sidebar:
+        st.markdown("## ⚡ Club Tornados")
+        st.markdown("**Dashboard de Fatiga v4.1**")
+        st.divider()
+
+        if st.button("🔄 Actualizar Datos Ahora", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+        st.caption("Caché: refresco automático cada 30 s.")
+        st.divider()
+
+        st.markdown("### ⚙️ Parámetros del Modelo")
+        rol = st.session_state.get("rol_usuario", "operativo")
+        if rol == "analitico":
+            ventana_meso = st.slider(
+                "Ventana Mesociclo — Z-score (días)", 14, 42, 28,
+                help="Ventana reciente para Z-score. NO usar historial total.",
+            )
+        else:
+            ventana_meso = 28
+            st.caption("⚙️ **Ventana mesociclo:** 28 días (fija).\nParámetro bloqueado en perfil operativo.")
+
+        st.divider()
+        st.markdown("### 📊 Variables del Modelo v4.1")
+        st.markdown("""
+| # | Variable | Ventana | Cambio v4.1 |
+|---|----------|---------|-------------|
+| 1 | ACWR | MMA₇ / MMC₂₈ | — |
+| 2 | Δ% VMP | **VMP vs MMC₂₈** | ✅ Era vs MMA₇ |
+| 3 | Z-score | Mesociclo | — |
+| 4 | β Aguda | 7 sesiones | — |
+| 5 | β Tendencia | 28 sesiones | — |
+| 6 | SWC | 8 sesiones | ✅ Nuevo filtro |
+""")
+        st.divider()
+        st.caption(
+            "Mamdani · 5 entradas · 23 reglas · COG defuzz.\n"
+            "Filtro SWC pre-motor activo.\n"
+            "Variable: VMP fase propulsiva CMJ."
+        )
+    return {"ventana_meso": ventana_meso}
+
+
+# =============================================================================
+#  TAB: DASHBOARD
+# =============================================================================
+
+def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
+    atletas    = sorted(df_raw["Nombre"].unique())
+    metricas_l = [calcular_metricas(df_raw, a, cfg["ventana_meso"]) for a in atletas]
+    metricas_l = [m for m in metricas_l if m]
+    resultados = [fz.evaluar_atleta(simulador, m) for m in metricas_l]
+    df_res     = pd.DataFrame(resultados)
+
+    total    = len(df_res)
+    criticos = (df_res["indice_fatiga"] < 25).sum()
+    fatiga   = ((df_res["indice_fatiga"] >= 25) & (df_res["indice_fatiga"] < 50)).sum()
+    alerta   = ((df_res["indice_fatiga"] >= 50) & (df_res["indice_fatiga"] < 75)).sum()
+    optimos  = (df_res["indice_fatiga"] >= 75).sum()
+    ruido    = int(df_res["es_ruido_biologico"].sum()) if "es_ruido_biologico" in df_res.columns else 0
+
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("👥 Atletas",         total)
+    c2.metric("🔴 Críticos",        criticos)
+    c3.metric("🟠 Fatiga Acum.",     fatiga)
+    c4.metric("🟡 Alerta Temp.",     alerta)
+    c5.metric("🟢 Óptimos",          optimos)
+    c6.metric(
+        "🔵 Variabilidad Normal", ruido,
+        help=(
+            "Atletas cuya caída de VMP está dentro del rango normal de variación "
+            "inter-sesión. Sin alarma activa — el rendimiento está dentro del ruido "
+            "biológico esperado (CV% CMJ 4–8%)."
+        ),
+    )
+
+    st.markdown("---")
+    st.markdown("## 🚦 Semáforo de Fatiga — Todos los Atletas")
+    st.pyplot(fig_semaforo(df_res))
+
+    # ── Tabla modo operativo / analítico ─────────────────────────────────────
+    st.markdown("## 📋 Tabla de Resultados")
+    modo_analitico = st.toggle(
+        "🔬 Modo Analítico (variables del modelo)",
+        value=st.session_state.get("modo_tabla_analitico", False),
+        key="modo_tabla_analitico",
+        help="Activa para ver ACWR, β₇, β₂₈, Z-score, SWC y DQI.",
+    )
+    cols = (
+        ["atleta", "vmp_hoy", "mmc28", "acwr", "delta_pct", "z_meso",
+         "beta_aguda", "beta_28", "swc_personal", "es_ruido_biologico",
+         "dqi", "calidad_dato", "indice_fatiga", "estado", "accion_primaria", "ultima_fecha"]
+        if modo_analitico else
+        ["atleta", "accion_primaria", "advertencias", "indice_fatiga", "estado", "ultima_fecha"]
+    )
+    rename_map = {
+        "atleta": "Atleta", "vmp_hoy": "VMP Hoy", "mmc28": "MMC28 (base)",
+        "acwr": "ACWR", "delta_pct": "Δ% vs MMC28", "z_meso": "Z Meso",
+        "beta_aguda": "β₇", "beta_28": "β₂₈", "swc_personal": "SWC",
+        "es_ruido_biologico": "Ruido Bio.", "dqi": "DQI", "calidad_dato": "Calidad",
+        "indice_fatiga": "Índice", "estado": "Estado",
+        "accion_primaria": "Acción", "advertencias": "Alertas", "ultima_fecha": "Última Sesión",
+    }
+    df_t = df_res[cols].copy().rename(columns=rename_map).sort_values("Índice")
+    if "Alertas" in df_t.columns:
+        df_t["Alertas"] = df_t["Alertas"].apply(
+            lambda v: " · ".join(v) if isinstance(v, list) and v else "—"
+        )
+    fmt = {"Índice": "{:.1f}"}
+    if modo_analitico:
+        fmt.update({
+            "VMP Hoy": "{:.3f}", "MMC28 (base)": "{:.3f}", "ACWR": "{:.3f}",
+            "Δ% vs MMC28": "{:+.1f}%", "Z Meso": "{:+.2f}",
+            "β₇": "{:+.4f}", "β₂₈": "{:+.4f}", "SWC": "{:.4f}", "DQI": "{:.2f}",
+        })
+    st.dataframe(df_t.style.format(fmt), use_container_width=True, hide_index=True)
+    st.download_button(
+        "⬇️ Descargar resultados (CSV)",
+        data=df_t.to_csv(index=False).encode("utf-8"),
+        file_name=f"fatiga_tornados_{date.today()}.csv",
+        mime="text/csv",
+    )
+
+    # ── Análisis individual ───────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("## 🔍 Análisis Individual")
+    atletas_ord = df_res.sort_values("indice_fatiga")["atleta"].tolist()
+    sel = st.selectbox("Selecciona un atleta:", atletas_ord)
+
+    if sel:
+        row = df_res[df_res["atleta"] == sel].iloc[0]
+        m   = calcular_metricas(df_raw, sel, cfg["ventana_meso"])
+        if m is None:
+            st.warning("Datos insuficientes (mínimo 4 sesiones).")
+            return
+
+        m["estado"]        = row["estado"]
+        m["color"]         = row["color"]
+        m["indice_fatiga"] = row["indice_fatiga"]
+        m["mmc28"]         = row["mmc28"]
+
+        sub_atleta = df_raw[df_raw["Nombre"] == sel]
+        if detectar_tendencia_mpv(sub_atleta, ventana=3):
+            st.warning(
+                "📉 **Tendencia VMP descendente en 3 sesiones consecutivas.** "
+                "Proxy de deterioro gradual del SNC — revisar carga semanal. "
+                "*(Weakley 2019)*"
+            )
+
+        if row.get("nota_swc"):
+            st.info(f"🔵 **Filtro SWC:** {row['nota_swc']}")
+
+        color = row["color"]
+        calidad_badge = {
+            "alta": "🟢 Confianza Alta", "media": "🟡 Confianza Media",
+            "baja": "🟠 Confianza Baja", "insuficiente": "🔴 Datos Insuficientes",
+        }.get(row.get("calidad_dato", "media"), "")
+
+        advertencias_html = "".join(
+            f'<div style="font-size:12px;color:#f87171;margin-top:6px;'
+            f'background:#2d1b1b;border-radius:6px;padding:4px 8px;">{adv}</div>'
+            for adv in (row.get("advertencias") or [])
+        )
+
+        col_info, col_vars = st.columns([1, 2])
+        with col_info:
+            st.markdown(f"""
+            <div style="background:#1e293b;border-radius:12px;padding:20px;
+                 border-left:5px solid {color};text-align:center;">
+              <div style="font-size:11px;color:#64748b;text-transform:uppercase;
+                   letter-spacing:1.5px;margin-bottom:6px;">ACCIÓN RECOMENDADA</div>
+              <div style="font-size:20px;font-weight:900;color:{color};line-height:1.2;">
+                {row.get('accion_primaria', row.get('accion',''))}</div>
+              <div style="font-size:13px;color:#94a3b8;margin-top:10px;">
+                {row.get('contexto_cientifico','')}</div>
+              {advertencias_html}
+              <hr style="border-color:#334155;margin:12px 0;">
+              <div style="font-size:32px;font-weight:900;color:{color};">{row['indice_fatiga']:.0f}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Índice de Fatiga</div>
+              <div style="font-size:14px;font-weight:700;color:{color};margin-top:4px;">{row['estado']}</div>
+              <div style="font-size:11px;color:#475569;margin-top:10px;">Última sesión: {row.get('ultima_fecha','—')}</div>
+              <div style="font-size:11px;color:#94a3b8;margin-top:4px;">DQI: {row.get('dqi',0):.2f} ({calidad_badge})</div>
+              <div style="font-size:11px;color:#38bdf8;margin-top:4px;">SWC personal: ±{row.get('swc_personal',0):.4f} m/s</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col_vars:
+            with st.expander("🔬 Ver variables del modelo", expanded=False):
+                d1, d2, d3 = st.columns(3)
+                d1.metric("ACWR", f"{row['acwr']:.3f}",
+                          help="Ratio carga aguda/crónica (MMA7/MMC28). Ideal 0.88–1.20.")
+                d2.metric("Δ% vs MMC28", f"{row['delta_pct']:+.1f}%",
+                          help="Caída de VMP hoy vs baseline MMC28.")
+                d3.metric("Z-Score Mesociclo", f"{row['z_meso']:+.2f}",
+                          help="Desviación estándar vs mesociclo completo.")
+                d4, d5, d6 = st.columns(3)
+                d4.metric("β₇ (Tendencia semanal)", f"{row['beta_aguda']:+.4f}",
+                          help="Pendiente VMP últimos 7 días. Positivo = mejorando.")
+                d5.metric("β₂₈ (Tendencia mensual)", f"{row['beta_28']:+.4f}",
+                          help="Pendiente VMP últimos 28 días.")
+                d6.metric("Sesiones consecutivas ↓", int(row.get("n_sesiones_desc", 0)),
+                          help="≥3 activa aviso de tendencia SNC.")
+                st.markdown(
+                    f"**Baseline:** MMC28 = `{row['mmc28']:.3f}` m/s  ·  "
+                    f"**SWC personal:** `{row.get('swc_personal',0):.4f}` m/s  ·  "
+                    f"**Sesiones totales:** {int(row['n_sesiones'])}"
+                )
+
+        st.markdown("#### Evolución VMP del CMJ")
+        st.pyplot(fig_tendencia(m))
+
+        with st.expander("📅 Ver historial de sesiones (últimas 20)"):
+            sub = df_raw[df_raw["Nombre"] == sel][["Fecha", "VMP_Hoy"]].tail(20)
+            st.dataframe(
+                sub.sort_values("Fecha", ascending=False).style.format({"VMP_Hoy": "{:.3f}"}),
+                use_container_width=True, hide_index=True,
+            )
+
+    with st.expander("📐 Ver Funciones de Pertenencia del Modelo"):
+        st.pyplot(fig_membership(vars_tuple))
+
+    return df_res
+
+
+# =============================================================================
+#  TAB: INGRESO DE DATOS
+# =============================================================================
+
+def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
+    st.markdown("### ➕ Registrar Sesión")
+    st.caption(
+        "**Variable registrada:** VMP de la fase propulsiva del CMJ (m/s). "
+        "No se registra RSImod ni tiempo de contacto."
+    )
+    st.markdown('<div class="form-card">', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([2, 2, 2])
+    with col1:
+        atleta_sel = st.selectbox("Atleta", atletas_lista, key="form_atleta")
+    with col2:
+        fecha_sel  = st.date_input("Fecha", value=date.today(), key="form_fecha",
+                                   max_value=date.today())
+    with col3:
+        vmp_val = st.number_input(
+            "VMP Fase Propulsiva CMJ (m/s)",
+            min_value=0.100, max_value=4.999,
+            value=0.500, step=0.001, format="%.3f", key="form_vmp",
+            help="Velocidad media fase concéntrica CMJ. Rango fisiológico: 0.80–2.50 m/s.",
+        )
+
+    # UX02: Validación inline con dos niveles de severidad
+    if vmp_val > 2.50:
+        st.error(
+            f"🚫 VMP {vmp_val:.3f} m/s supera el límite fisiológico (2.50 m/s). "
+            "Verifica el sensor. **El sistema rechazará este valor.**"
+        )
+    elif vmp_val > 1.80:
+        st.warning(
+            f"⚠️ VMP {vmp_val:.3f} m/s es inusualmente alta para CMJ libre. "
+            "¿El sensor está midiendo la fase propulsiva correcta?"
+        )
+
+    notas_val = st.text_input("Notas (opcional)", key="form_notas",
+                               placeholder="Observaciones de la sesión...")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    if not df_raw.empty:
+        ya_existe = (
+            (df_raw["Nombre"] == atleta_sel) &
+            (df_raw["Fecha"]  == pd.Timestamp(fecha_sel))
+        ).any()
+        if ya_existe:
+            st.warning(
+                f"⚠️ Ya existe un registro para **{atleta_sel}** el **{fecha_sel}**. "
+                "Guarda solo si deseas agregar una segunda sesión en el mismo día."
+            )
+
+    if st.button("💾 Guardar Sesión", type="primary"):
+        ok, msg = db.insertar_sesion(atleta_sel, fecha_sel, vmp_val, notas_val)
+        if ok:
+            st.success(msg)
+            st.cache_data.clear()
+        else:
+            st.error(msg)
+
+    st.markdown("---")
+    st.markdown("### ⚡ Registro Rápido Multi-Atleta (mismo día)")
+    st.caption("VMP fase propulsiva CMJ para cada atleta. Deja en **0.000** a quienes no participaron.")
+
+    fecha_multi = st.date_input("Fecha de la sesión", value=date.today(),
+                                 max_value=date.today(), key="multi_fecha")
+    n_cols = 3
+    rows   = [atletas_lista[i:i+n_cols] for i in range(0, len(atletas_lista), n_cols)]
+    vmp_multi: dict[str, float] = {}
+    for fila in rows:
+        cols_ui = st.columns(n_cols)
+        for col, nombre in zip(cols_ui, fila):
+            with col:
+                val = st.number_input(
+                    nombre, min_value=0.0, max_value=4.999, value=0.0,
+                    step=0.001, format="%.3f", key=f"multi_{nombre}",
+                    help="0.000 = no participó (se omite)",
+                )
+                if val > 0:
+                    vmp_multi[nombre] = val
+
+    if st.button("💾 Guardar Todos", type="primary", key="multi_save"):
+        if not vmp_multi:
+            st.warning("No hay valores VMP ingresados.")
+        else:
+            errores = []
+            for nombre, vmp in vmp_multi.items():
+                ok, msg = db.insertar_sesion(nombre, fecha_multi, vmp)
+                if not ok:
+                    errores.append(f"{nombre}: {msg}")
+            if errores:
+                st.warning("Algunos registros no se pudieron guardar:\n" + "\n".join(errores))
+            else:
+                st.success(f"✅ {len(vmp_multi)} sesiones guardadas correctamente.")
+                st.cache_data.clear()
+
+
+# =============================================================================
+#  TAB: HISTORIAL Y EDICIÓN
+# =============================================================================
+
+def tab_historial(df_raw: pd.DataFrame, atletas_lista: list[str]):
+    st.markdown("### 📝 Editar / Eliminar Sesiones")
+
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        atleta_ed = st.selectbox("Atleta", atletas_lista, key="ed_atleta")
+    with col2:
+        fecha_desde = st.date_input("Desde", value=date.today() - timedelta(days=30),
+                                     key="ed_desde")
+
+    sub = df_raw[
+        (df_raw["Nombre"] == atleta_ed) &
+        (df_raw["Fecha"]  >= pd.Timestamp(fecha_desde))
+    ].sort_values("Fecha", ascending=False)
+
+    if sub.empty:
+        st.info("No hay registros en el rango seleccionado.")
+        return
+
+    if "notas" not in sub.columns:
+        sub = sub.copy()
+        sub["notas"] = ""
+
+    sub_display = sub[["Fecha", "VMP_Hoy", "notas", "id"]].copy()
+    sub_display["Fecha"] = sub_display["Fecha"].dt.strftime("%Y-%m-%d")
+    st.dataframe(
+        sub_display.rename(columns={
+            "Fecha": "Fecha", "VMP_Hoy": "VMP CMJ (m/s)", "notas": "Notas", "id": "ID",
+        }).style.format({"VMP CMJ (m/s)": "{:.3f}"}),
+        use_container_width=True, hide_index=True,
+    )
+
+    st.markdown("---")
+    opciones = {
+        f"{row['Fecha'].strftime('%Y-%m-%d')} · {row['VMP_Hoy']:.3f} m/s": row["id"]
+        for _, row in sub.iterrows()
+    }
+    sel_label = st.selectbox("Selecciona sesión a modificar:", list(opciones.keys()), key="ed_sel")
+    sel_id    = opciones[sel_label]
+    sel_row   = sub[sub["id"] == sel_id].iloc[0]
+
+    col_e1, col_e2 = st.columns([2, 3])
+    with col_e1:
+        nuevo_vmp = st.number_input(
+            "Nuevo VMP CMJ (m/s)", min_value=0.100, max_value=4.999,
+            value=float(sel_row["VMP_Hoy"]), step=0.001, format="%.3f", key="ed_vmp",
+        )
+    with col_e2:
+        nuevas_notas = st.text_input(
+            "Notas", value=str(sel_row.get("notas", "") or ""), key="ed_notas",
+        )
+
+    # M03: Confirmación de eliminación en dos pasos
+    if "confirm_delete_id" not in st.session_state:
+        st.session_state.confirm_delete_id = None
+
+    col_btn1, col_btn2, _ = st.columns([1, 1, 3])
+    with col_btn1:
+        if st.button("✏️ Actualizar", type="primary"):
+            st.session_state.confirm_delete_id = None
+            ok, msg = db.actualizar_sesion(sel_id, nuevo_vmp, nuevas_notas)
+            if ok:
+                st.success(msg); st.cache_data.clear(); st.rerun()
+            else:
+                st.error(msg)
+    with col_btn2:
+        if st.button("🗑️ Eliminar", type="secondary"):
+            st.session_state.confirm_delete_id = sel_id
+
+    if st.session_state.get("confirm_delete_id") == sel_id:
+        st.warning(
+            f"⚠️ **¿Confirmar eliminación?**  \n"
+            f"Atleta: **{atleta_ed}** · "
+            f"Fecha: **{sel_row['Fecha'].strftime('%Y-%m-%d')}** · "
+            f"VMP: **{sel_row['VMP_Hoy']:.3f} m/s**  \n"
+            "Esta acción es **irreversible**."
+        )
+        col_conf, col_cancel, _ = st.columns([1, 1, 3])
+        with col_conf:
+            if st.button("⚠️ Confirmar eliminación", type="primary", key="confirm_del_btn"):
+                ok, msg = db.eliminar_sesion(sel_id)
+                st.session_state.confirm_delete_id = None
+                if ok:
+                    st.success(msg); st.cache_data.clear(); st.rerun()
+                else:
+                    st.error(msg)
+        with col_cancel:
+            if st.button("✖ Cancelar", key="cancel_del_btn"):
+                st.session_state.confirm_delete_id = None
+                st.rerun()
+
+
+# =============================================================================
+#  TAB: IMPORTACIÓN MASIVA
+# =============================================================================
+
+def tab_importacion():
+    st.markdown("### 📤 Importar desde CSV / Excel")
+    st.markdown("""
+El archivo debe tener mínimo estas tres columnas (nombres exactos o equivalentes detectados automáticamente):
+
+| Columna | Ejemplo | Descripción |
+|---------|---------|-------------|
+| `Nombre` | Juanes | Nombre del atleta |
+| `Fecha`  | 2025-03-15 | Fecha de la sesión |
+| `VMP_Hoy` | 0.487 | VMP fase propulsiva CMJ (m/s) |
+""")
+    archivo = st.file_uploader("Subir archivo", type=["csv", "xlsx"])
+
+    if archivo:
+        try:
+            df_imp = (
+                pd.read_csv(archivo) if archivo.name.endswith(".csv")
+                else pd.read_excel(archivo)
+            )
+            col_map = {}
+            for c in df_imp.columns:
+                cl = c.lower().strip()
+                if "nombre" in cl or "atleta" in cl:  col_map[c] = "Nombre"
+                elif "fecha" in cl or "date"  in cl:  col_map[c] = "Fecha"
+                elif "vmp"   in cl or "vel"   in cl:  col_map[c] = "VMP_Hoy"
+            df_imp = df_imp.rename(columns=col_map)
+
+            if not all(c in df_imp.columns for c in ["Nombre", "Fecha", "VMP_Hoy"]):
+                st.error("No se encontraron las columnas requeridas. Verifica el archivo.")
+                return
+
+            anomalias = df_imp[df_imp["VMP_Hoy"] > 2.50]
+            if not anomalias.empty:
+                st.warning(
+                    f"⚠️ {len(anomalias)} filas con VMP > 2.50 m/s detectadas. "
+                    "Revisa que los datos correspondan a VMP del CMJ."
+                )
+
+            st.success(
+                f"Archivo válido: {len(df_imp)} filas · "
+                f"{df_imp['Nombre'].nunique()} atletas detectados."
+            )
+            st.dataframe(df_imp.head(10), use_container_width=True)
+
+            if st.button("⬆️ Importar a Base de Datos", type="primary"):
+                with st.spinner("Importando..."):
+                    ins, omi, errs = db.importar_dataframe(df_imp)
+                st.success(f"✅ Insertados: {ins} · Omitidos: {omi}")
+                if errs:
+                    st.warning("Errores:\n" + "\n".join(errs))
+                st.cache_data.clear()
+
+        except Exception as exc:
+            log.error("tab_importacion error: %s", exc)
+            st.error(f"Error al leer el archivo: {exc}")
+
+
+# =============================================================================
+#  MAIN
+# =============================================================================
 
 def main():
-    # 1. Cargar Datos
-    df_raw = obtener_datos_cached()
-    atletas_lista = sorted(df_raw["Nombre"].unique().tolist()) if not df_raw.empty else []
-    
-    st.title("Dashboard Fatiga · Club Tornados")
-    
-    # 2. Resumen Superior estilo Original
-    if not df_raw.empty:
-        n_atletas = len(atletas_lista)
-        ultima = pd.to_datetime(df_raw["Fecha"]).max().strftime("%d/%m/%Y")
+    st.markdown(
+        "<h1 style='text-align:center;color:#38bdf8;'>⚡ Dashboard de Fatiga</h1>"
+        "<h3 style='text-align:center;color:#64748b;margin-top:-10px;'>"
+        "Club Tornados · Modelo Fuzzy Mamdani v4.1 · Filtro SWC Activo</h3>",
+        unsafe_allow_html=True,
+    )
+
+    cfg = render_sidebar()
+
+    with st.spinner("Conectando con base de datos..."):
+        df_raw        = cargar_sesiones_cached()
+        atletas_lista = cargar_atletas_cached()
+
+    if df_raw.empty:
+        st.warning(
+            "Base de datos vacía. Ve a la pestaña **➕ Ingreso de Datos** "
+            "para registrar las primeras sesiones."
+        )
+    else:
+        n_atletas = df_raw["Nombre"].nunique()
+        ultima    = df_raw["Fecha"].max().strftime("%d/%m/%Y")
         st.success(
             f"✅ **{len(df_raw)} registros** · **{n_atletas} atletas** · "
             f"Última sesión: **{ultima}**"
         )
 
-    # 3. Inicializar Motor Fuzzy
-    motor_fuzzy = construir_motor_fuzzy_cached()
-    simulador = motor_fuzzy[1] if isinstance(motor_fuzzy, tuple) and len(motor_fuzzy) == 2 else None
+    vars_tuple, simulador = construir_motor_fuzzy_cached()
 
-    # Navegación Tabs Original
+    # UX03: estado persistente de tab
+    if "tab_activa" not in st.session_state:
+        st.session_state.tab_activa = 0
+
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Dashboard",
         "➕ Ingreso de Datos",
@@ -286,12 +760,12 @@ def main():
 
     with tab1:
         if not df_raw.empty:
-            tab_dashboard(df_raw, simulador)
+            tab_dashboard(df_raw, simulador, vars_tuple, cfg)
         else:
             st.info("Sin datos. Registra sesiones en **➕ Ingreso de Datos**.")
 
     with tab2:
-        tab_ingreso(atletas_lista)
+        tab_ingreso(atletas_lista, df_raw)
 
     with tab3:
         if not df_raw.empty:
@@ -303,7 +777,14 @@ def main():
         tab_importacion()
 
     st.markdown("---")
-    st.caption("Modelo Fuzzy Mamdani v4.1 · 5 variables · 23 reglas · Defuzzificación COA")
+    st.caption(
+        "Modelo Fuzzy Mamdani v4.1 · 5 variables · 23 reglas · Defuzzificación COG · "
+        "Variable: VMP fase propulsiva CMJ (no RSImod) · "
+        "Δ% calculado vs MMC28 (baseline crónico) · "
+        "Filtro SWC dinámico (1.0×SD adultos / 1.5×SD <15 a) · "
+        "Base científica: Jukic 2022 · González-Badillo 2022 · Moura 2023 · Weakley 2019"
+    )
+
 
 if __name__ == "__main__":
     main()
