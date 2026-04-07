@@ -1,7 +1,6 @@
 """
 app.py — Interfaz Streamlit (solo UI)
 Lógica de negocio → services.py | Motor difuso → fuzzy.py | Base de datos → db.py
-Sistema de Diseño: Obsidian — High-Contrast Dark
 """
 import logging
 import warnings
@@ -10,7 +9,6 @@ from datetime import date
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import skfuzzy as fuzz
 import streamlit as st
 
 import db
@@ -35,122 +33,23 @@ log = logging.getLogger(__name__)
 # =============================================================================
 
 st.set_page_config(
-    page_title="Elite Performance · Obsidian Core",
+    page_title="Dashboard Fatiga · Club Tornados",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
-
-# =============================================================================
-#  SISTEMA DE DISEÑO: OBSIDIAN — HIGH-CONTRAST DARK
-# =============================================================================
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap');
-
-    :root {
-        --bg-main: #09090b;
-        --bg-card: #0c0c0f;
-        --border-zinc: #27272a;
-        --text-primary: #fafafa;
-        --text-secondary: #a1a1aa;
-        --accent-violet: #a78bfa;
-        --success-emerald: #34d399;
-        --error-red: #ef4444;
-        --warning-amber: #f59e0b;
-        --info-blue: #3b82f6;
-    }
-
-    /* Reset global */
-    .main {
-        background-color: var(--bg-main);
-        color: var(--text-primary);
-        font-family: 'Geist', sans-serif;
-    }
-
-    /* Encabezados */
-    h1, h2, h3 {
-        color: var(--text-primary) !important;
-        font-family: 'Geist', sans-serif !important;
-        letter-spacing: -0.02em !important;
-        font-weight: 900 !important;
-    }
-
-    /* Contenedores y Cards */
-    div[data-testid="stVerticalBlock"] > div[style*="border"] {
-        background-color: var(--bg-card) !important;
-        border: 1px solid var(--border-zinc) !important;
-        border-radius: 8px !important;
-        padding: 1.5rem !important;
-    }
-
-    /* Tabs Personalizadas */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-        background-color: transparent;
-        border-bottom: 1px solid var(--border-zinc);
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        background-color: transparent !important;
-        border: none !important;
-        color: var(--text-secondary) !important;
-        font-weight: 500;
-    }
-
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        color: var(--accent-violet) !important;
-        border-bottom: 2px solid var(--accent-violet) !important;
-    }
-
-    /* Botones */
-    .stButton > button {
-        border-radius: 6px !important;
-        font-weight: 600 !important;
-        transition: all 0.2s ease;
-    }
-
-    /* Botón Primario */
-    .stButton > button[kind="primary"] {
-        background-color: var(--accent-violet) !important;
-        color: #000000 !important;
-        border: none !important;
-    }
-
-    /* Botón Secundario/Normal */
-    .stButton > button[kind="secondary"] {
-        background-color: transparent !important;
-        color: var(--text-primary) !important;
-        border: 1px solid var(--border-zinc) !important;
-    }
-
-    .stButton > button:hover {
-        opacity: 0.9;
-        transform: translateY(-1px);
-    }
-
-    /* Inputs */
-    div[data-baseweb="input"], div[data-baseweb="select"], div[data-baseweb="number-input"] {
-        background-color: var(--bg-card) !important;
-        border: 1px solid var(--border-zinc) !important;
-        border-radius: 6px !important;
-    }
-
-    /* Metric UI */
-    [data-testid="stMetricValue"] {
-        color: var(--text-primary) !important;
-        font-weight: 800 !important;
-    }
-
-    [data-testid="stMetricLabel"] {
-        color: var(--text-secondary) !important;
-    }
-
-    /* Hide Streamlit elements */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
+  .block-container { padding-top: 1.2rem; }
+  .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+  .stTabs [data-baseweb="tab"] {
+    background: #1e293b; border-radius: 6px 6px 0 0; 
+    padding: 10px 20px; color: #cbd5e1; font-weight: 500;
+  }
+  .stTabs [data-baseweb="tab"][aria-selected="true"] {
+    background: #3b82f6; color: white;
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -158,197 +57,162 @@ st.markdown("""
 #  UTILS: GRÁFICOS (MATPLOTLIB)
 # =============================================================================
 
-def apply_obsidian_style(fig, ax):
-    """Aplica el estilo Obsidian a figuras de Matplotlib."""
-    fig.patch.set_facecolor('#09090b')
-    ax.set_facecolor('#09090b')
-    for spine in ['bottom', 'top', 'right', 'left']:
-        ax.spines[spine].set_color('#27272a')
-    ax.tick_params(axis='x', colors='#fafafa')
-    ax.tick_params(axis='y', colors='#fafafa')
-    ax.yaxis.label.set_color('#fafafa')
-    ax.xaxis.label.set_color('#fafafa')
-    ax.title.set_color('#fafafa')
-    if ax.get_legend():
-        for text in ax.get_legend().get_texts():
-            text.set_color('#fafafa')
-
 def fig_semaforo(valor_fatiga: float):
-    """Gauge horizontal Obsidian para el índice de fatiga."""
+    """Gauge horizontal para el índice de fatiga."""
     fig, ax = plt.subplots(figsize=(6, 1.2))
-    colors = ['#34d399', '#3b82f6', '#f59e0b', '#ef4444']
+    fig.patch.set_facecolor('#0e1117')
+    ax.set_facecolor('#0e1117')
+    
+    colors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444']
     boundaries = [0, 25, 50, 75, 100]
 
     for i in range(len(colors)):
         ax.barh(0, boundaries[i+1]-boundaries[i], left=boundaries[i], 
                 color=colors[i], alpha=0.3, height=0.4)
 
-    ax.scatter(valor_fatiga, 0, color='#a78bfa', s=150, zorder=5, edgecolors='#fafafa')
-    ax.axvline(valor_fatiga, color='#a78bfa', linestyle='--', linewidth=1.5)
+    ax.scatter(valor_fatiga, 0, color='white', s=150, zorder=5, edgecolors='black')
+    ax.axvline(valor_fatiga, color='white', linestyle='--', linewidth=1)
 
     ax.set_xlim(0, 100)
     ax.set_yticks([])
-    # Centramos las 4 marcas en medio de cada zona para que coincidan con las 4 etiquetas
     ax.set_xticks([12.5, 37.5, 62.5, 87.5])
-    ax.set_xticklabels(['Óptimo', 'Estable', 'Alerta', 'Crítico'], fontsize=8)
+    ax.set_xticklabels(['Óptimo', 'Estable', 'Alerta', 'Crítico'], color='white', fontsize=8)
     
-    apply_obsidian_style(fig, ax)
+    for spine in ['top', 'right', 'left', 'bottom']:
+        ax.spines[spine].set_color('#333333')
+        
+    ax.tick_params(axis='x', colors='white')
     plt.tight_layout()
     return fig
 
 def fig_tendencia(fechas, historial):
-    """Gráfico de línea con estilo Obsidian mostrando evolución de VMP."""
+    """Gráfico de línea mostrando evolución de VMP."""
     fig, ax = plt.subplots(figsize=(7, 3))
+    fig.patch.set_facecolor('#0e1117')
+    ax.set_facecolor('#0e1117')
     
-    # Manejar listas vacías para prevenir errores en matplotlib
     if not historial or not fechas:
-        ax.text(0.5, 0.5, "Sin datos de tendencia suficientes", color='#a1a1aa', 
+        ax.text(0.5, 0.5, "Sin datos de tendencia suficientes", color='white', 
                 ha='center', va='center', transform=ax.transAxes)
     else:
-        ax.plot(fechas, historial, marker='o', color='#a78bfa', linewidth=2, markersize=5, label='VMP')
-        ax.fill_between(fechas, historial, color='#a78bfa', alpha=0.1)
-        ax.grid(True, axis='y', linestyle=':', alpha=0.2, color='#fafafa')
-        plt.xticks(rotation=45)
-    
-    ax.set_ylabel("VMP (m/s)")
-    apply_obsidian_style(fig, ax)
-    
+        ax.plot(fechas, historial, marker='o', color='#3b82f6', linewidth=2, markersize=5)
+        ax.fill_between(fechas, historial, color='#3b82f6', alpha=0.1)
+        ax.grid(True, axis='y', linestyle=':', alpha=0.2, color='white')
+        plt.xticks(rotation=45, color='white')
+        plt.yticks(color='white')
+        ax.set_ylabel("VMP (m/s)", color='white')
+        
+    for spine in ['top', 'right', 'left', 'bottom']:
+        ax.spines[spine].set_color('#333333')
+        
+    plt.tight_layout()
     return fig
 
 # =============================================================================
-#  VISTAS (TABS) ARTICULADAS CON DB Y SERVICES
+#  VISTAS (TABS)
 # =============================================================================
 
-def tab_dashboard(df, simulador, vars_tuple, cfg):
-    """Dashboard de monitoreo vinculado a services.py."""
+def tab_dashboard(df, simulador):
     st.markdown("### Rendimiento en Tiempo Real")
     
-    atleta = st.selectbox("Seleccionar Atleta", sorted(df["Nombre"].unique()))
+    c_atleta, c_vacio = st.columns([1, 2])
+    with c_atleta:
+        atletas_lista = sorted(df["Nombre"].unique().tolist())
+        atleta = st.selectbox("Seleccionar Atleta", atletas_lista)
+        
     df_atleta = df[df["Nombre"] == atleta].sort_values("Fecha")
-    
     if df_atleta.empty:
         st.warning("No hay datos suficientes para este atleta.")
         return
 
-    # 1. Llamada robusta a calcular_metricas (soluciona el NotImplementedError)
-    try:
-        # services.py espera: df_completo, nombre_atleta
-        metrics = calcular_metricas(df, atleta)
-    except TypeError:
-        try:
-            # Fallback en caso de que espere la config
-            metrics = calcular_metricas(df, atleta, cfg)
-        except Exception as e:
-            st.error(f"Error procesando métricas del atleta: {e}")
-            return
-            
-    # 2. Garantizar la evaluación Fuzzy (si no viene ya incrustada en services)
+    # Cálculos Matemáticos
+    metrics = calcular_metricas(df, atleta)
+    
     if "indice_fatiga" not in metrics and hasattr(fz, 'evaluar_fatiga'):
-        try:
-            # Algunos backends pasan el simulador
-            metrics = fz.evaluar_fatiga(metrics, simulador)
-        except TypeError:
-            try:
-                metrics = fz.evaluar_fatiga(metrics)
-            except Exception as e:
-                log.warning(f"No se pudo evaluar la fatiga difusa: {e}")
-            
-    # Extracción segura de variables
+        metrics = fz.evaluar_fatiga(metrics, simulador)
+
     fatiga_val = metrics.get('indice_fatiga', 0.0)
     estado_lbl = metrics.get('estado', 'Sin Evaluación')
     acwr_val = metrics.get('acwr', 0.0)
     delta_val = metrics.get('delta_pct', 0.0)
     
-    # UI: Obsidian Metrics
+    # Fila de métricas
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("Índice Fatiga", f"{fatiga_val:.1f}%")
-    with c2:
-        st.metric("Estado", estado_lbl)
-    with c3:
-        st.metric("ACWR", f"{acwr_val:.2f}")
-    with c4:
-        st.metric("Variación VMP", f"{delta_val:.1f}%")
+    c1.metric("Índice Fatiga (0-100)", f"{fatiga_val}%")
+    c2.metric("Estado Actual", estado_lbl)
+    c3.metric("ACWR (Carga)", f"{acwr_val:.2f}")
+    c4.metric("Variación VMP", f"{delta_val}%")
 
     st.markdown("---")
     
-    col_left, col_right = st.columns([1, 1], gap="large")
+    # Recomendaciones Técnicas
+    st.markdown("#### Recomendación Técnica")
+    st.info(f"**Acción Sugerida:** {metrics.get('accion', 'Mantener rutina actual.')}")
     
-    with col_left:
-        st.markdown(f"#### Estado de {atleta}")
+    for adv in metrics.get('advertencias', []):
+        st.warning(adv)
+
+    # Gráficos
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_graf1, c_graf2 = st.columns(2)
+    with c_graf1:
+        st.markdown("**Estado del Atleta (Semáforo)**")
         st.pyplot(fig_semaforo(fatiga_val))
-        
-        with st.expander("Ver Recomendación Técnica", expanded=True):
-            accion = metrics.get('accion', 'Mantener rutina actual.')
-            st.info(accion)
-            
-            # Mostrar advertencias si existen
-            advertencias = metrics.get('advertencias', [])
-            if advertencias:
-                for adv in advertencias:
-                    st.warning(adv)
-            
-    with col_right:
-        st.markdown("#### Evolución de VMP")
-        # Trata de extraer fechas e historial del motor de metricas, sino de la base filtrada
+    with c_graf2:
+        st.markdown("**Evolución VMP (m/s)**")
         fechas = metrics.get("fechas", df_atleta["Fecha"].tolist())
         historial = metrics.get("historial", df_atleta["VMP_Hoy"].tolist())
         st.pyplot(fig_tendencia(fechas, historial))
 
 def tab_ingreso(atletas_lista):
-    """Formulario de entrada de datos validado por SessionInput y DB."""
-    st.markdown("### Registro de Nueva Sesión")
+    st.markdown("### ➕ Ingreso de Datos (Sesión)")
     
     with st.form("form_sesion", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
             nombre = st.selectbox("Atleta", ["-- Seleccionar --"] + atletas_lista)
-            fecha = st.date_input("Fecha de Sesión", value=date.today())
+            fecha = st.date_input("Fecha", value=date.today())
         with c2:
-            vmp = st.number_input("Velocidad Media Propulsiva (m/s)", min_value=0.1, max_value=2.5, value=1.0, step=0.01)
-            notas = st.text_input("Notas u observaciones")
+            vmp = st.number_input("VMP_Hoy (m/s)", min_value=0.1, max_value=2.5, value=1.0, step=0.01)
+            notas = st.text_input("Notas (Opcional)")
         
-        submitted = st.form_submit_button("Guardar Registro", type="primary")
-        
-        if submitted:
+        if st.form_submit_button("Guardar Registro", type="primary"):
             if nombre == "-- Seleccionar --":
                 st.error("Por favor selecciona un atleta.")
             else:
                 try:
-                    # Validar con el DataClass de services.py
                     sesion = SessionInput(nombre=nombre, fecha=str(fecha), vmp=float(vmp), notas=notas)
-                    
-                    # Insertar usando db.py
                     ok, msg = db.insertar_sesion(sesion.nombre, sesion.fecha, sesion.vmp, sesion.notas)
                     if ok:
-                        st.success(f"Sesión registrada correctamente para {nombre}.")
-                        st.cache_data.clear() # Limpiar caché para actualizar vistas
+                        st.success(f"✅ {msg}")
+                        st.cache_data.clear()
                     else:
                         st.error(msg)
                 except Exception as e:
                     st.error(f"Error de validación: {e}")
 
-def tab_historial(df):
-    """Gestión de registros vinculado a Supabase mediante db.py."""
-    st.markdown("### Historial de Sesiones")
+def tab_historial(df, atletas_lista):
+    st.markdown("### ✏️ Historial y Edición")
     
-    # Mostrar tabla
-    st.dataframe(
-        df.sort_values("Fecha", ascending=False),
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    # Interfaz de eliminación real
-    st.markdown("#### Eliminar Registro")
-    c1, c2 = st.columns([3, 1])
+    c1, c2 = st.columns(2)
     with c1:
-        # Usamos la columna 'id' que viene de Supabase
-        id_borrar = st.selectbox("Seleccione el ID de la sesión a eliminar", df['id'].tolist() if 'id' in df else [])
-    with c2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Eliminar", kind="secondary", use_container_width=True):
-            if id_borrar:
+        f_atleta = st.selectbox("Filtrar por Atleta", ["Todos"] + atletas_lista)
+        
+    df_show = df if f_atleta == "Todos" else df[df["Nombre"] == f_atleta]
+    st.dataframe(df_show.sort_values("Fecha", ascending=False), use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    st.markdown("#### 🗑️ Eliminar Registro")
+    
+    df_ids = df_show.dropna(subset=["id"]) if "id" in df_show.columns else df_show
+    if not df_ids.empty:
+        c_del1, c_del2 = st.columns([3, 1])
+        with c_del1:
+            id_borrar = st.selectbox("Seleccione el ID de la sesión a eliminar", df_ids["id"].astype(str).tolist())
+        with c_del2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            # ERROR CORREGIDO AQUI: Se remueve kind="secondary" y se usa type="secondary"
+            if st.button("Eliminar Sesión", type="secondary", use_container_width=True):
                 ok, msg = db.eliminar_sesion(id_borrar)
                 if ok:
                     st.success(msg)
@@ -356,11 +220,12 @@ def tab_historial(df):
                     st.rerun()
                 else:
                     st.error(msg)
+    else:
+        st.info("No hay registros con ID válidos para eliminar.")
 
 def tab_importacion():
-    """Importar datos externos vía db.importar_dataframe."""
-    st.markdown("### Importar Datos (CSV)")
-    archivo = st.file_uploader("Subir archivo de entrenamiento", type=["csv"])
+    st.markdown("### 📤 Importar Datos Masivos (CSV)")
+    archivo = st.file_uploader("Sube un archivo CSV con columnas: Nombre, Fecha, VMP_Hoy, notas", type=["csv"])
     
     if archivo:
         try:
@@ -370,7 +235,7 @@ def tab_importacion():
             if st.button("Procesar Importación", type="primary"):
                 with st.spinner("Sincronizando con Supabase..."):
                     insertados, omitidos, errores = db.importar_dataframe(df_import)
-                    st.success(f"✅ Completado: {insertados} registros insertados | {omitidos} omitidos.")
+                    st.success(f"✅ Completado: **{insertados}** registros insertados | **{omitidos}** omitidos.")
                     if errores:
                         with st.expander("Ver detalles de registros omitidos"):
                             for err in errores:
@@ -385,97 +250,60 @@ def tab_importacion():
 
 @st.cache_data
 def obtener_datos_cached():
-    """Conecta directamente con la función real de db.py"""
     return db.cargar_sesiones()
 
 @st.cache_resource
 def construir_motor_fuzzy_cached():
-    """Conecta con fuzzy.py para inicializar las variables difusas"""
-    try:
-        # Devuelve las variables según fuzzy.py
-        return fz.construir_sistema_fuzzy()
-    except Exception as e:
-        log.error(f"Error cargando motor fuzzy: {e}")
-        return None, None
+    return fz.construir_sistema_fuzzy()
 
 def main():
-    # Header Obsidian
-    st.markdown("""
-        <div style="text-align: center; padding: 1rem 0 2rem 0;">
-            <h1 style="margin-bottom: 0;">ELITE PERFORMANCE</h1>
-            <p style="color: #a1a1aa; font-family: 'Geist'; letter-spacing: 0.1em;">
-                OBSIDIAN CORE · ENGINE v4.1
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-
     # 1. Cargar Datos
     df_raw = obtener_datos_cached()
     atletas_lista = sorted(df_raw["Nombre"].unique().tolist()) if not df_raw.empty else []
     
-    # 2. Resumen Superior
+    st.title("Dashboard Fatiga · Club Tornados")
+    
+    # 2. Resumen Superior estilo Original
     if not df_raw.empty:
-        n_at = len(atletas_lista)
+        n_atletas = len(atletas_lista)
         ultima = pd.to_datetime(df_raw["Fecha"]).max().strftime("%d/%m/%Y")
-        st.markdown(f"""
-            <div style="background: #0c0c0f; border: 1px solid #27272a; border-radius: 8px; padding: 10px; text-align: center; margin-bottom: 20px;">
-                <span style="color: #34d399;">●</span> 
-                <span style="color: #fafafa; font-weight: 500;">{len(df_raw)} Registros</span> 
-                <span style="color: #27272a; margin: 0 10px;">|</span>
-                <span style="color: #fafafa; font-weight: 500;">{n_at} Atletas activos</span>
-                <span style="color: #27272a; margin: 0 10px;">|</span>
-                <span style="color: #a1a1aa;">Sincronizado: {ultima}</span>
-            </div>
-        """, unsafe_allow_html=True)
+        st.success(
+            f"✅ **{len(df_raw)} registros** · **{n_atletas} atletas** · "
+            f"Última sesión: **{ultima}**"
+        )
 
     # 3. Inicializar Motor Fuzzy
     motor_fuzzy = construir_motor_fuzzy_cached()
-    
-    # Manejo seguro si fuzzy.py retorna una tupla (vars, simulador) o solo las variables
-    if isinstance(motor_fuzzy, tuple) and len(motor_fuzzy) == 2:
-        vars_tuple, simulador = motor_fuzzy
-    else:
-        vars_tuple = motor_fuzzy
-        simulador = None
+    simulador = motor_fuzzy[1] if isinstance(motor_fuzzy, tuple) and len(motor_fuzzy) == 2 else None
 
-    # Navegación Obsidian Tabs
+    # Navegación Tabs Original
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Dashboard",
-        "➕ Registro",
-        "✏️ Historial",
-        "📤 Importar",
+        "➕ Ingreso de Datos",
+        "✏️ Historial / Edición",
+        "📤 Importar CSV",
     ])
-
-    cfg = {} # Fallback config object
 
     with tab1:
         if not df_raw.empty:
-            tab_dashboard(df_raw, simulador, vars_tuple, cfg)
+            tab_dashboard(df_raw, simulador)
         else:
-            st.info("Sin datos. Registra sesiones para comenzar.")
+            st.info("Sin datos. Registra sesiones en **➕ Ingreso de Datos**.")
 
     with tab2:
         tab_ingreso(atletas_lista)
 
     with tab3:
         if not df_raw.empty:
-            tab_historial(df_raw)
+            tab_historial(df_raw, atletas_lista)
         else:
-            st.info("No hay sesiones registradas.")
+            st.info("No hay sesiones registradas aún.")
 
     with tab4:
         tab_importacion()
 
-    # Footer
-    st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("---")
-    c_f1, c_f2 = st.columns([3, 1])
-    with c_f1:
-        st.caption("Modelo Fuzzy Mamdani v4.1 · Obsidian High-Contrast UI")
-    with c_f2:
-        if st.button("Limpiar Caché / Forzar Refresco", kind="secondary", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+    st.caption("Modelo Fuzzy Mamdani v4.1 · 5 variables · 23 reglas · Defuzzificación COA")
 
 if __name__ == "__main__":
     main()
