@@ -27,8 +27,8 @@ def get_client() -> Client:
         SUPABASE_URL  = "https://xxxx.supabase.co"
         SUPABASE_KEY  = "eyJ..."   # anon key (RLS activo)
     """
-    url = st.secrets ["supabase"]["https://hbmoztlcbrfcayoiqmpy.supabase.co"]
-    key = st.secrets ["supabase"] ["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhibW96dGxjYnJmY2F5b2lxbXB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMzI4ODEsImV4cCI6MjA5MDkwODg4MX0.FOlsrQXdBahHg1DsgvVJz43pDWXzRmXAaetPW_kVlH4"]
+    url = st.secrets ["supabase"]["url"]
+    key = st.secrets ["supabase"] ["key"]
     return create_client(url, key)
 
 
