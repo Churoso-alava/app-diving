@@ -15,7 +15,7 @@ import streamlit as st
 
 import db
 import fuzzy as fz
-from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
+from services import SessionInput, calcular_metricas
 
 warnings.filterwarnings("ignore")
 
@@ -199,14 +199,19 @@ def fig_tendencia(fechas, historial):
     """Gráfico de línea con estilo Obsidian mostrando evolución de VMP."""
     fig, ax = plt.subplots(figsize=(7, 3))
     
-    ax.plot(fechas, historial, marker='o', color='#a78bfa', linewidth=2, markersize=5, label='VMP')
-    ax.fill_between(fechas, historial, color='#a78bfa', alpha=0.1)
+    # Manejar listas vacías para prevenir errores en matplotlib
+    if not historial or not fechas:
+        ax.text(0.5, 0.5, "Sin datos de tendencia suficientes", color='#a1a1aa', 
+                ha='center', va='center', transform=ax.transAxes)
+    else:
+        ax.plot(fechas, historial, marker='o', color='#a78bfa', linewidth=2, markersize=5, label='VMP')
+        ax.fill_between(fechas, historial, color='#a78bfa', alpha=0.1)
+        ax.grid(True, axis='y', linestyle=':', alpha=0.2, color='#fafafa')
+        plt.xticks(rotation=45)
     
-    ax.grid(True, axis='y', linestyle=':', alpha=0.2, color='#fafafa')
     ax.set_ylabel("VMP (m/s)")
-    
     apply_obsidian_style(fig, ax)
-    plt.xticks(rotation=45)
+    
     return fig
 
 # =============================================================================
@@ -224,25 +229,32 @@ def tab_dashboard(df, simulador, vars_tuple, cfg):
         st.warning("No hay datos suficientes para este atleta.")
         return
 
-    # Llamada resiliente a calcular_metricas (soporta diferentes firmas de la función)
+    # 1. Llamada robusta a calcular_metricas (soluciona el NotImplementedError)
     try:
-        metrics = calcular_metricas(df_atleta, simulador, vars_tuple, cfg)
+        # services.py espera: df_completo, nombre_atleta
+        metrics = calcular_metricas(df, atleta)
     except TypeError:
         try:
-            metrics = calcular_metricas(df_atleta)
+            # Fallback en caso de que espere la config
+            metrics = calcular_metricas(df, atleta, cfg)
         except Exception as e:
             st.error(f"Error procesando métricas del atleta: {e}")
             return
             
-    # Garantizar que las métricas fuzzy estén calculadas (si services.py no las incluyó directamente)
+    # 2. Garantizar la evaluación Fuzzy (si no viene ya incrustada en services)
     if "indice_fatiga" not in metrics and hasattr(fz, 'evaluar_fatiga'):
         try:
-            metrics = fz.evaluar_fatiga(metrics)
-        except Exception as e:
-            log.warning(f"No se pudo evaluar la fatiga difusa: {e}")
+            # Algunos backends pasan el simulador
+            metrics = fz.evaluar_fatiga(metrics, simulador)
+        except TypeError:
+            try:
+                metrics = fz.evaluar_fatiga(metrics)
+            except Exception as e:
+                log.warning(f"No se pudo evaluar la fatiga difusa: {e}")
             
+    # Extracción segura de variables
     fatiga_val = metrics.get('indice_fatiga', 0.0)
-    estado_lbl = metrics.get('estado', 'Desconocido')
+    estado_lbl = metrics.get('estado', 'Sin Evaluación')
     acwr_val = metrics.get('acwr', 0.0)
     delta_val = metrics.get('delta_pct', 0.0)
     
@@ -277,6 +289,7 @@ def tab_dashboard(df, simulador, vars_tuple, cfg):
             
     with col_right:
         st.markdown("#### Evolución de VMP")
+        # Trata de extraer fechas e historial del motor de metricas, sino de la base filtrada
         fechas = metrics.get("fechas", df_atleta["Fecha"].tolist())
         historial = metrics.get("historial", df_atleta["VMP_Hoy"].tolist())
         st.pyplot(fig_tendencia(fechas, historial))
@@ -416,9 +429,13 @@ def main():
 
     # 3. Inicializar Motor Fuzzy
     motor_fuzzy = construir_motor_fuzzy_cached()
-    # Desempaquetado seguro (ya que depende de cuántos objetos retorna la tupla en tu código)
-    vars_tuple = motor_fuzzy[0] if isinstance(motor_fuzzy, tuple) and len(motor_fuzzy) > 0 else None
-    simulador = motor_fuzzy[1] if isinstance(motor_fuzzy, tuple) and len(motor_fuzzy) > 1 else None
+    
+    # Manejo seguro si fuzzy.py retorna una tupla (vars, simulador) o solo las variables
+    if isinstance(motor_fuzzy, tuple) and len(motor_fuzzy) == 2:
+        vars_tuple, simulador = motor_fuzzy
+    else:
+        vars_tuple = motor_fuzzy
+        simulador = None
 
     # Navegación Obsidian Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
