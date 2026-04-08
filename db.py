@@ -22,14 +22,20 @@ log = logging.getLogger(__name__)
 @st.cache_resource
 def get_client() -> Client:
     """
-    Crea el cliente Supabase.
+    Crea el cliente Supabase con Service Role Key.
+    ⚠️  CAMBIO CRÍTICO: Usar service_role_key (NO anon key)
+    
+    La anon key tiene RLS activa pero sin usuario autenticado → queries vacías.
+    Service Role Key bypasa RLS para queries backend.
+    
     Requiere en .streamlit/secrets.toml:
-        SUPABASE_URL  = "https://xxxx.supabase.co"
-        SUPABASE_KEY  = "eyJ..."   # anon key (RLS activo)
+        [supabase]
+        url = "https://xxxx.supabase.co"
+        service_role_key = "eyJ..."   # ← Copiar de Settings > API > service_role secret
     """
-    url = st.secrets ["supabase"]["url"]
-    key = st.secrets ["supabase"] ["key"]
-    return create_client(url, key)
+    url = st.secrets["supabase"]["url"]
+    service_role_key = st.secrets["supabase"]["service_role_key"]
+    return create_client(url, service_role_key)
 
 
 # =============================================================================
@@ -91,10 +97,10 @@ def insertar_sesion(
         SessionInput(nombre=nombre, fecha=str(fecha), vmp=vmp, notas=notas)  # valida
         client = get_client()
         client.table("sesiones").insert({
-            "Nombre":  nombre,
-            "Fecha":   str(fecha),
-            "VMP_Hoy": vmp,
-            "notas":   notas,
+            "nombre":   nombre,
+            "fecha":    str(fecha),
+            "vmp_hoy":  vmp,
+            "notas":    notas,
         }).execute()
         log.info("insertar_sesion: %s %s %.3f m/s", nombre, fecha, vmp)
         return True, f"✅ Sesión guardada: {nombre} — {fecha} — {vmp:.3f} m/s"
@@ -117,7 +123,7 @@ def actualizar_sesion(
             return False, f"❌ VMP {nuevo_vmp:.3f} fuera del rango fisiológico [0.100, 2.500]"
         client = get_client()
         client.table("sesiones").update({
-            "VMP_Hoy": nuevo_vmp,
+            "vmp_hoy": nuevo_vmp,
             "notas":   notas,
         }).eq("id", sesion_id).execute()
         log.info("actualizar_sesion id=%s → %.3f m/s", sesion_id, nuevo_vmp)
