@@ -22,7 +22,7 @@ try:
 except ImportError:
     def get_global_css():
         return ""  # CSS vacío como fallback
-    fig_vmp_tendencia,
+    (fig_vmp_tendencia,
     fig_semaforo_barras,
     fig_semaforo_historico,
     fig_membership_fuzzy,
