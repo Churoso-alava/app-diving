@@ -38,7 +38,7 @@ h1, h2, h3, p, label {
 # from visualization.charts import fig_vmp_tendencia, ...
 # from visualization.components import render_kpi_row, ...
 
-""error de sintaxis 
+#error de sintaxis
 #except ModuleNotFoundError:
     # Si falla, intenta desde archivos en raíz
     #print("⚠️ No se encontró paquete visualization/, intentando imports alternativos...")
