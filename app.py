@@ -18,11 +18,10 @@ from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
 # ── Nuevos módulos de visualización ──────────────────────────────────────────
 # ── Módulos de visualización (importar directamente desde raíz) ──────────────
 try:
-    from visualization import get_global_css
-except ImportError:
-    def get_global_css():
-        return ""  # CSS vacío como fallback
-    (fig_vmp_tendencia,
+ # Importar directamente desde visualization (con fallback)
+from visualization import (
+    get_global_css,
+    fig_vmp_tendencia,
     fig_semaforo_barras,
     fig_semaforo_historico,
     fig_membership_fuzzy,
