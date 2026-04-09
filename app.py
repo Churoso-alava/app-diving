@@ -45,15 +45,15 @@ h1, h2, h3, p, label {
     #try:
      #   from themes import get_global_css
       #  from charts import (
-            fig_vmp_tendencia,
-            fig_semaforo_barras,
-            fig_semaforo_historico,
-            fig_membership_fuzzy,
+        #    fig_vmp_tendencia,
+         #   fig_semaforo_barras,
+          #  fig_semaforo_historico,
+           # fig_membership_fuzzy,
        # )
         #from components import (
          #   render_kpi_row,
-            render_athlete_bars,
-            render_athlete_profile,
+           # render_athlete_bars,
+           # render_athlete_profile,
         #)
         #print("✓ Imports desde raíz funcionan")
     #except ModuleNotFoundError as e:
