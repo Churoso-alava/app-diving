@@ -19,7 +19,7 @@ from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
 # ── Módulos de visualización (importar directamente desde raíz) ──────────────
 try:
  # Importar directamente desde visualization (con fallback)
-from visualization import (
+ from visualization import (
     get_global_css,
     fig_vmp_tendencia,
     fig_semaforo_barras,
