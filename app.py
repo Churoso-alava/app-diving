@@ -6,7 +6,6 @@ import logging
 import warnings
 from datetime import date, timedelta
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import skfuzzy as fuzz
@@ -16,10 +15,24 @@ import db
 import fuzzy as fz
 from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
 
+# ── Nuevos módulos de visualización ──────────────────────────────────────────
+from visualization.themes import get_global_css
+from visualization.charts import (
+    fig_vmp_tendencia,
+    fig_semaforo_barras,
+    fig_semaforo_historico,
+    fig_membership_fuzzy,
+)
+from visualization.components import (
+    render_kpi_row,
+    render_athlete_bars,
+    render_athlete_profile,
+)
+
 warnings.filterwarnings("ignore")
 
 # =============================================================================
-#  LOGGING — Fase 4
+#  LOGGING
 # =============================================================================
 
 logging.basicConfig(
@@ -30,7 +43,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # =============================================================================
-#  CONFIGURACIÓN DE PÁGINA  (debe ir ANTES de cualquier otro st.*)
+#  CONFIGURACIÓN DE PÁGINA
 # =============================================================================
 
 st.set_page_config(
@@ -40,6 +53,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── CSS: base legacy + nuevo glassmorphism ────────────────────────────────────
 st.markdown("""
 <style>
   .block-container { padding-top: 1.2rem; }
@@ -60,15 +74,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Inyectar CSS glassmorphism dark del módulo de visualización
+st.markdown(get_global_css(), unsafe_allow_html=True)
+
 
 # =============================================================================
-#  AUTENTICACIÓN — Fase 1 + Fase 3
-#  check_password usa st.secrets["APP_PASSWORD"] (sin fallback hardcoded).
-#  Cuando se active auth real de Supabase, reemplazar por check_supabase_auth().
+#  AUTENTICACIÓN
 # =============================================================================
 
 def check_password() -> bool:
-    """Autenticación básica por contraseña. Sin fallback hardcoded (Fase 1)."""
     if st.session_state.get("password_correct"):
         return True
 
@@ -76,14 +90,13 @@ def check_password() -> bool:
     password = st.text_input("Contraseña:", type="password")
 
     try:
-        expected = st.secrets["APP_PASSWORD"]   # ← Fase 1: sin default inseguro
+        expected = st.secrets["APP_PASSWORD"]
     except KeyError:
         st.error("⚠️ APP_PASSWORD no configurado en secrets.toml")
         return False
 
     if password == expected:
         st.session_state.password_correct = True
-        # Fase 3/M04: asignar rol desde secrets si está definido
         try:
             st.session_state.rol_usuario = st.secrets["ROL_USUARIO"]
         except KeyError:
@@ -101,7 +114,7 @@ if not check_password():
 
 
 # =============================================================================
-#  CARGA DE DATOS CON CACHÉ (TTL 30 s)
+#  CARGA DE DATOS CON CACHÉ
 # =============================================================================
 
 @st.cache_data(ttl=30)
@@ -115,7 +128,7 @@ def cargar_atletas_cached() -> list:
 
 
 # =============================================================================
-#  MOTOR FUZZY — cacheado en proceso Streamlit
+#  MOTOR FUZZY
 # =============================================================================
 
 @st.cache_resource
@@ -124,81 +137,12 @@ def construir_motor_fuzzy_cached():
 
 
 # =============================================================================
-#  GRÁFICOS
+#  GRÁFICOS LEGACY (solo fig_membership se mantiene con matplotlib)
 # =============================================================================
 
-def fig_semaforo(df_res: pd.DataFrame) -> plt.Figure:
-    df_p = df_res.sort_values("indice_fatiga").reset_index(drop=True)
-    fig, ax = plt.subplots(figsize=(10, max(4, len(df_p) * 0.9)))
-    fig.patch.set_facecolor("#0f172a")
-    ax.set_facecolor("#0f172a")
-    ax.axis("off")
-    for i, r in df_p.iterrows():
-        y = i * 1.1
-        ax.barh(y, 100, height=0.72, color="#1e293b", left=0, zorder=1)
-        ax.barh(y, r["indice_fatiga"], height=0.72, color=r["color"], alpha=0.88, zorder=2)
-        ax.text(-1.5, y, r["atleta"], va="center", ha="right",
-                fontsize=11, color="white", fontweight="bold")
-        ax.text(r["indice_fatiga"] + 1.5, y, f"{r['indice_fatiga']:.0f}",
-                va="center", fontsize=10, color=r["color"], fontweight="bold")
-        ax.text(72, y, r["estado"].split(" ", 1)[1],
-                va="center", fontsize=8.5, color=r["color"])
-        ax.text(105, y, r.get("ultima_fecha", ""), va="center",
-                fontsize=7.5, color="#64748b")
-    ax.set_xlim(-22, 125)
-    ax.set_ylim(-0.6, len(df_p) * 1.1)
-    ax.set_title("Índice de Fatiga  [0 = Crítico → 100 = Óptimo]",
-                 color="white", fontsize=11, pad=12)
-    plt.tight_layout()
-    return fig
-
-
-def fig_tendencia(m: dict) -> plt.Figure:
-    vmp    = np.array(m["historial"])
-    fechas = m["fechas"]
-    n      = len(vmp)
-    mma7s  = pd.Series(vmp).rolling(7,  min_periods=3).mean().values
-    mmc28s = pd.Series(vmp).rolling(28, min_periods=7).mean().values
-
-    fig, ax = plt.subplots(figsize=(10, 4))
-    fig.patch.set_facecolor("#0f172a")
-    ax.set_facecolor("#1e293b")
-    for sp in ax.spines.values():
-        sp.set_color("#334155")
-    ax.tick_params(colors="#94a3b8", labelsize=8)
-
-    xs = range(n)
-    ax.plot(xs, vmp,    color="#38bdf8", lw=1.5, alpha=0.6, label="VMP Fase Propulsiva CMJ (m/s)")
-    ax.scatter(xs, vmp, color="#38bdf8", s=22, zorder=5)
-    ax.plot(xs, mma7s,  color="#fb923c", lw=2, label="Fatiga Aguda — MMA7 (Últimos 7 días)")
-    ax.plot(xs, mmc28s, color="#a78bfa", lw=2, label="Baseline Crónico — MMC28 (Últimos 28 días)")
-    ax.axvline(n - 1, color=m["color"], lw=1.5, linestyle="--", alpha=0.7)
-    ax.scatter([n - 1], [vmp[-1]], color=m["color"], s=70, zorder=6)
-
-    mmc28_val = m.get("mmc28", mma7s[-1] if len(mma7s) > 0 else vmp[-1])
-    if mmc28_val > 0:
-        ax.axhline(mmc28_val * 0.85, color="#f59e0b", lw=1, linestyle=":", alpha=0.8,
-                   label="Umbral Alerta (~15% caída sobre MMC28)")
-        ax.axhline(mmc28_val * 0.75, color="#f87171", lw=1, linestyle=":", alpha=0.8,
-                   label="Umbral Crítico (~25% caída sobre MMC28)")
-
-    xticks = list(range(0, n, max(1, n // 10)))
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(
-        [str(fechas[i])[:10] if i < len(fechas) else "" for i in xticks],
-        rotation=35, ha="right", fontsize=7.5, color="#94a3b8",
-    )
-    ax.set_ylabel("VMP Fase Propulsiva CMJ (m/s)", color="#94a3b8", fontsize=9)
-    ax.set_title(
-        f"Evolución VMP del CMJ — {m['atleta']}  [Δ vs MMC28: {m.get('delta_pct', 0):+.1f}%]",
-        color="white", fontsize=12, fontweight="bold",
-    )
-    ax.legend(fontsize=8, labelcolor="white", facecolor="#0f172a", edgecolor="#334155")
-    plt.tight_layout()
-    return fig
-
-
-def fig_membership(vars_tuple) -> plt.Figure:
+def fig_membership(vars_tuple):
+    """Funciones de membresía — se mantiene matplotlib por complejidad del motor fuzzy."""
+    import matplotlib.pyplot as plt
     acwr_v, delta_v, zmeso_v, ba_v, b28_v, fat_v = vars_tuple
     configs = [
         (acwr_v,  ["bajo","optimo","alto","excesivo"],               "ACWR"),
@@ -282,6 +226,32 @@ def render_sidebar() -> dict:
 #  TAB: DASHBOARD
 # =============================================================================
 
+def _preparar_df_atletas(df_res: pd.DataFrame) -> list[dict]:
+    """Convierte df_res al formato que esperan render_athlete_bars."""
+    STATUS_MAP = {
+        "🔴": "CRÍTICO",
+        "🟠": "FATIGA ACUMULADA",
+        "🟡": "ALERTA TEMPRANA",
+        "🟢": "ÓPTIMO",
+    }
+    resultado = []
+    for _, row in df_res.iterrows():
+        estado_raw = row.get("estado", "")
+        # Extraer estado limpio del string "🟢 ÓPTIMO" o similar
+        estado_clean = estado_raw
+        for emoji, label in STATUS_MAP.items():
+            if emoji in estado_raw:
+                estado_clean = label
+                break
+        resultado.append({
+            "nombre": row["atleta"],
+            "score":  float(row["indice_fatiga"]),
+            "estado": estado_clean,
+            "fecha":  str(row.get("ultima_fecha", "")),
+        })
+    return resultado
+
+
 def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
     atletas    = sorted(df_raw["Nombre"].unique())
     metricas_l = [calcular_metricas(df_raw, a, cfg["ventana_meso"]) for a in atletas]
@@ -290,32 +260,61 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
     df_res     = pd.DataFrame(resultados)
 
     total    = len(df_res)
-    criticos = (df_res["indice_fatiga"] < 25).sum()
-    fatiga   = ((df_res["indice_fatiga"] >= 25) & (df_res["indice_fatiga"] < 50)).sum()
-    alerta   = ((df_res["indice_fatiga"] >= 50) & (df_res["indice_fatiga"] < 75)).sum()
-    optimos  = (df_res["indice_fatiga"] >= 75).sum()
-    ruido    = int(df_res["es_ruido_biologico"].sum()) if "es_ruido_biologico" in df_res.columns else 0
+    criticos = int((df_res["indice_fatiga"] < 25).sum())
+    fatiga   = int(((df_res["indice_fatiga"] >= 25) & (df_res["indice_fatiga"] < 50)).sum())
+    alerta   = int(((df_res["indice_fatiga"] >= 50) & (df_res["indice_fatiga"] < 75)).sum())
+    optimos  = int((df_res["indice_fatiga"] >= 75).sum())
 
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("👥 Atletas",         total)
-    c2.metric("🔴 Críticos",        criticos)
-    c3.metric("🟠 Fatiga Acum.",     fatiga)
-    c4.metric("🟡 Alerta Temp.",     alerta)
-    c5.metric("🟢 Óptimos",          optimos)
-    c6.metric(
-        "🔵 Variabilidad Normal", ruido,
-        help=(
-            "Atletas cuya caída de VMP está dentro del rango normal de variación "
-            "inter-sesión. Sin alarma activa — el rendimiento está dentro del ruido "
-            "biológico esperado (CV% CMJ 4–8%)."
-        ),
+    # ── KPI Cards (nuevo diseño) ──────────────────────────────────────────────
+    render_kpi_row(
+        total=total,
+        criticos=criticos,
+        fatiga_acum=fatiga,
+        alerta_temp=alerta,
+        optimos=optimos,
     )
 
     st.markdown("---")
     st.markdown("## 🚦 Semáforo de Fatiga — Todos los Atletas")
-    st.pyplot(fig_semaforo(df_res))
 
-    # ── Tabla modo operativo / analítico ─────────────────────────────────────
+    # ── Barras de atletas en 2 columnas (nuevo diseño) ────────────────────────
+    atletas_lista_ui = _preparar_df_atletas(df_res)
+    render_athlete_bars(atletas_lista_ui)
+
+    # ── Histórico de semáforo (NUEVO — no existía) ────────────────────────────
+    st.markdown("---")
+    st.markdown("## 📈 Línea Histórica de Semáforo")
+    try:
+        df_hist = df_raw.copy()
+        # Calcular métricas históricas por atleta y fecha para el gráfico
+        # Usamos df_res como proxy del estado actual; para histórico completo
+        # se necesitaría iterar sesión a sesión — aquí mostramos lo disponible.
+        df_hist_plot = df_res[["atleta", "indice_fatiga", "estado", "ultima_fecha"]].copy()
+        df_hist_plot = df_hist_plot.rename(columns={
+            "atleta": "nombre",
+            "indice_fatiga": "score",
+            "ultima_fecha": "fecha",
+        })
+        # Limpiar estado para que coincida con STATUS_COLOR
+        STATUS_MAP = {
+            "🔴": "CRÍTICO", "🟠": "FATIGA ACUMULADA",
+            "🟡": "ALERTA TEMPRANA", "🟢": "ÓPTIMO",
+        }
+        def _clean_estado(e):
+            for emoji, label in STATUS_MAP.items():
+                if emoji in str(e):
+                    return label
+            return str(e)
+        df_hist_plot["estado"] = df_hist_plot["estado"].apply(_clean_estado)
+        df_hist_plot["fecha"]  = df_hist_plot["fecha"].astype(str)
+        df_hist_plot = df_hist_plot.dropna(subset=["score", "fecha"])
+        st.plotly_chart(fig_semaforo_historico(df_hist_plot), use_container_width=True)
+    except Exception as e:
+        log.warning("No se pudo renderizar histórico de semáforo: %s", e)
+        st.info("El gráfico histórico estará disponible cuando haya múltiples sesiones registradas.")
+
+    # ── Tabla de resultados ───────────────────────────────────────────────────
+    st.markdown("---")
     st.markdown("## 📋 Tabla de Resultados")
     modo_analitico = st.toggle(
         "🔬 Modo Analítico (variables del modelo)",
@@ -399,52 +398,56 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
             for adv in (row.get("advertencias") or [])
         )
 
-        col_info, col_vars = st.columns([1, 2])
-        with col_info:
-            st.markdown(f"""
-            <div style="background:#1e293b;border-radius:12px;padding:20px;
-                 border-left:5px solid {color};text-align:center;">
-              <div style="font-size:11px;color:#64748b;text-transform:uppercase;
-                   letter-spacing:1.5px;margin-bottom:6px;">ACCIÓN RECOMENDADA</div>
-              <div style="font-size:20px;font-weight:900;color:{color};line-height:1.2;">
-                {row.get('accion_primaria', row.get('accion',''))}</div>
-              <div style="font-size:13px;color:#94a3b8;margin-top:10px;">
-                {row.get('contexto_cientifico','')}</div>
-              {advertencias_html}
-              <hr style="border-color:#334155;margin:12px 0;">
-              <div style="font-size:32px;font-weight:900;color:{color};">{row['indice_fatiga']:.0f}</div>
-              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Índice de Fatiga</div>
-              <div style="font-size:14px;font-weight:700;color:{color};margin-top:4px;">{row['estado']}</div>
-              <div style="font-size:11px;color:#475569;margin-top:10px;">Última sesión: {row.get('ultima_fecha','—')}</div>
-              <div style="font-size:11px;color:#94a3b8;margin-top:4px;">DQI: {row.get('dqi',0):.2f} ({calidad_badge})</div>
-              <div style="font-size:11px;color:#38bdf8;margin-top:4px;">SWC personal: ±{row.get('swc_personal',0):.4f} m/s</div>
-            </div>
-            """, unsafe_allow_html=True)
+        # ── Panel de perfil atleta (nuevo diseño) ─────────────────────────────
+        STATUS_MAP_CLEAN = {
+            "🔴": "CRÍTICO", "🟠": "FATIGA ACUMULADA",
+            "🟡": "ALERTA TEMPRANA", "🟢": "ÓPTIMO",
+        }
+        estado_clean = row["estado"]
+        for emoji, label in STATUS_MAP_CLEAN.items():
+            if emoji in str(row["estado"]):
+                estado_clean = label
+                break
 
-        with col_vars:
-            with st.expander("🔬 Ver variables del modelo", expanded=False):
-                d1, d2, d3 = st.columns(3)
-                d1.metric("ACWR", f"{row['acwr']:.3f}",
-                          help="Ratio carga aguda/crónica (MMA7/MMC28). Ideal 0.88–1.20.")
-                d2.metric("Δ% vs MMC28", f"{row['delta_pct']:+.1f}%",
-                          help="Caída de VMP hoy vs baseline MMC28.")
-                d3.metric("Z-Score Mesociclo", f"{row['z_meso']:+.2f}",
-                          help="Desviación estándar vs mesociclo completo.")
-                d4, d5, d6 = st.columns(3)
-                d4.metric("β₇ (Tendencia semanal)", f"{row['beta_aguda']:+.4f}",
-                          help="Pendiente VMP últimos 7 días. Positivo = mejorando.")
-                d5.metric("β₂₈ (Tendencia mensual)", f"{row['beta_28']:+.4f}",
-                          help="Pendiente VMP últimos 28 días.")
-                d6.metric("Sesiones consecutivas ↓", int(row.get("n_sesiones_desc", 0)),
-                          help="≥3 activa aviso de tendencia SNC.")
-                st.markdown(
-                    f"**Baseline:** MMC28 = `{row['mmc28']:.3f}` m/s  ·  "
-                    f"**SWC personal:** `{row.get('swc_personal',0):.4f}` m/s  ·  "
-                    f"**Sesiones totales:** {int(row['n_sesiones'])}"
-                )
+        render_athlete_profile(
+            nombre=sel,
+            posicion=row.get("posicion", "Jugador"),
+            disponible=bool(row.get("activo", True)),
+            indice_fatiga=float(row["indice_fatiga"]),
+            estado=estado_clean,
+            recomendacion=row.get("accion_primaria", row.get("accion", "—")),
+            ultima_sesion=str(row.get("ultima_fecha", "—")),
+            metricas={
+                "acwr":            {"valor": float(row["acwr"]),       "estado": ""},
+                "delta_pct":       {"valor": float(row["delta_pct"]),  "estado": ""},
+                "z_meso":          {"valor": float(row["z_meso"]),     "estado": ""},
+                "beta7":           {"valor": float(row["beta_aguda"]), "estado": ""},
+                "beta28":          {"valor": float(row["beta_28"]),    "estado": ""},
+                "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
+            },
+        )
 
+        # ── Gráfico VMP (nuevo Plotly interactivo) ────────────────────────────
         st.markdown("#### Evolución VMP del CMJ")
-        st.pyplot(fig_tendencia(m))
+        vmp    = np.array(m["historial"])
+        fechas = [str(f)[:10] for f in m["fechas"]]
+        mma7s  = pd.Series(vmp).rolling(7,  min_periods=3).mean().values
+        mmc28s = pd.Series(vmp).rolling(28, min_periods=7).mean().values
+
+        df_atleta_plot = pd.DataFrame({
+            "fecha": fechas,
+            "vmp_hoy": vmp,
+            "mma7":    mma7s,
+            "mmc28":   mmc28s,
+        })
+        st.plotly_chart(
+            fig_vmp_tendencia(
+                df=df_atleta_plot,
+                nombre_atleta=sel,
+                delta_pct=float(m.get("delta_pct", 0)),
+            ),
+            use_container_width=True,
+        )
 
         with st.expander("📅 Ver historial de sesiones (últimas 20)"):
             sub = df_raw[df_raw["Nombre"] == sel][["Fecha", "VMP_Hoy"]].tail(20)
@@ -485,7 +488,6 @@ def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
             help="Velocidad media fase concéntrica CMJ. Rango fisiológico: 0.80–2.50 m/s.",
         )
 
-    # UX02: Validación inline con dos niveles de severidad
     if vmp_val > 2.50:
         st.error(
             f"🚫 VMP {vmp_val:.3f} m/s supera el límite fisiológico (2.50 m/s). "
@@ -613,7 +615,6 @@ def tab_historial(df_raw: pd.DataFrame, atletas_lista: list[str]):
             "Notas", value=str(sel_row.get("notas", "") or ""), key="ed_notas",
         )
 
-    # M03: Confirmación de eliminación en dos pasos
     if "confirm_delete_id" not in st.session_state:
         st.session_state.confirm_delete_id = None
 
@@ -747,7 +748,6 @@ def main():
 
     vars_tuple, simulador = construir_motor_fuzzy_cached()
 
-    # UX03: estado persistente de tab
     if "tab_activa" not in st.session_state:
         st.session_state.tab_activa = 0
 
