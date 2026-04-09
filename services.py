@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from scipy import stats
+from fuzzy import evaluar_atleta
 
 log = logging.getLogger(__name__)
 
@@ -223,3 +224,26 @@ def detectar_tendencia_mpv(df_atleta: pd.DataFrame, ventana: int = 3) -> bool:
         .values
     )
     return bool(all(ultimas[i] > ultimas[i + 1] for i in range(len(ultimas) - 1)))
+
+
+def calcular_historial_fatiga(df, atleta, simulador):
+    resultados = []
+
+    sub = df[df["Nombre"] == atleta].sort_values("Fecha")
+
+    for i in range(4, len(sub) + 1):
+        df_slice = sub.iloc[:i]
+
+        metricas = calcular_metricas(df_slice, atleta)
+        if not metricas:
+            continue
+
+        resultado = evaluar_atleta(simulador, metricas)
+
+        resultados.append({
+            "fecha": df_slice["Fecha"].iloc[-1],
+            "fatiga": resultado["indice_fatiga"],
+            "dqi": metricas["dqi"]
+        })
+
+    return pd.DataFrame(resultados)
