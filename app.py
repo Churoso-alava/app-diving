@@ -39,6 +39,7 @@ h1, h2, h3, p, label {
 # from visualization.components import render_kpi_row, ...
 
 from visualization.components import render_kpi_row, render_athlete_bars, render_athlete_profile
+from visualization.charts import fig_vmp_tendencia, fig_semaforo_barras, fig_semaforo_historico
 
 #error de sintaxis
 #except ModuleNotFoundError:
