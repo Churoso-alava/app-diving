@@ -5,12 +5,10 @@ Lógica de negocio → services.py | Motor difuso → fuzzy.py | Base de datos �
 import logging
 import warnings
 from datetime import date, timedelta
-
 import numpy as np
 import pandas as pd
 import skfuzzy as fuzz
 import streamlit as st
-
 import db
 import fuzzy as fz
 from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
@@ -40,26 +38,27 @@ h1, h2, h3, p, label {
 # from visualization.charts import fig_vmp_tendencia, ...
 # from visualization.components import render_kpi_row, ...
 
-except ModuleNotFoundError:
+""error de sintaxis 
+#except ModuleNotFoundError:
     # Si falla, intenta desde archivos en raíz
-    print("⚠️ No se encontró paquete visualization/, intentando imports alternativos...")
-    try:
-        from themes import get_global_css
-        from charts import (
+    #print("⚠️ No se encontró paquete visualization/, intentando imports alternativos...")
+    #try:
+     #   from themes import get_global_css
+      #  from charts import (
             fig_vmp_tendencia,
             fig_semaforo_barras,
             fig_semaforo_historico,
             fig_membership_fuzzy,
-        )
-        from components import (
-            render_kpi_row,
+       # )
+        #from components import (
+         #   render_kpi_row,
             render_athlete_bars,
             render_athlete_profile,
-        )
-        print("✓ Imports desde raíz funcionan")
-    except ModuleNotFoundError as e:
-        print(f"❌ Error crítico en imports: {e}")
-        raise
+        #)
+        #print("✓ Imports desde raíz funcionan")
+    #except ModuleNotFoundError as e:
+     #   print(f"❌ Error crítico en imports: {e}")
+      #  raise
 
 warnings.filterwarnings("ignore")
 
