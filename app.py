@@ -18,19 +18,17 @@ from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
 # ── Nuevos módulos de visualización ──────────────────────────────────────────
 # ── Módulos de visualización (importar directamente desde raíz) ──────────────
 try:
-    # Intenta importar como paquete (si visualization/ existe)
-    from visualization.themes import get_global_css
-    from visualization.charts import (
-        fig_vmp_tendencia,
-        fig_semaforo_barras,
-        fig_semaforo_historico,
-        fig_membership_fuzzy,
-    )
-    from visualization.components import (
-        render_kpi_row,
-        render_athlete_bars,
-        render_athlete_profile,
-    )
+  # Importar componentes de visualización desde paquete
+from visualization import (
+    get_global_css,
+    fig_vmp_tendencia,
+    fig_semaforo_barras,
+    fig_semaforo_historico,
+    fig_membership_fuzzy,
+    render_kpi_row,
+    render_athlete_bars,
+    render_athlete_profile,
+)
 except ModuleNotFoundError:
     # Si falla, intenta desde archivos en raíz
     print("⚠️ No se encontró paquete visualization/, intentando imports alternativos...")
