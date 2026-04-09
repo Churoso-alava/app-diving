@@ -38,7 +38,7 @@ h1, h2, h3, p, label {
 # from visualization.charts import fig_vmp_tendencia, ...
 # from visualization.components import render_kpi_row, ...
 
-from components import render_kpi_row, render_athlete_bars, render_athlete_profile
+from visualization.components import render_kpi_row, render_athlete_bars, render_athlete_profile
 
 #error de sintaxis
 #except ModuleNotFoundError:
