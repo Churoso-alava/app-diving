@@ -380,25 +380,19 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
    if sel:
     row = df_res[df_res["atleta"] == sel].iloc[0]
     m   = calcular_metricas(df_raw, sel, cfg["ventana_meso"])
-
-    if m is None:
-        st.warning("Datos insuficientes (mínimo 4 sesiones).")
-        return
-
-    m["estado"]        = row["estado"]
-    m["color"]         = row["color"]
-    m["indice_fatiga"] = row["indice_fatiga"]
-    m["mmc28"]         = row["mmc28"]
-
-    sub_atleta = df_raw[df_raw["Nombre"] == sel]
-
-    # ✅ TODO lo dependiente del atleta VA DENTRO
-    if detectar_tendencia_mpv(sub_atleta, ventana=3):
+       if m is None:
+            st.warning("Datos insuficientes (mínimo 4 sesiones).")
+            return
+        m["estado"]        = row["estado"]
+        m["color"]         = row["color"]
+        m["indice_fatiga"] = row["indice_fatiga"]
+        m["mmc28"]         = row["mmc28"]
+        sub_atleta = df_raw[df_raw["Nombre"] == sel]
+        if detectar_tendencia_mpv(sub_atleta, ventana=3):   # ✅ TODO lo dependiente del atleta VA DENTRO
         st.warning(
             "📉 **Tendencia VMP descendente en 3 sesiones consecutivas.** "
             "Proxy de deterioro gradual del SNC — revisar carga semanal."
         )
-
     if row.get("nota_swc"):
         st.info(f"🔵 **Filtro SWC:** {row['nota_swc']}")
 
