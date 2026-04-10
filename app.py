@@ -444,24 +444,24 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
                 estado_clean = label
                 break
 
-       render_athlete_profile(
-            nombre=sel,
-            posicion=row.get("posicion", "Jugador"),
-            disponible=bool(row.get("activo", True)),
-            indice_fatiga=float(row["indice_fatiga"]),
-            estado=estado_clean,
-            recomendacion=row.get("accion_primaria", row.get("accion", "—")),
-            ultima_sesion=str(row.get("ultima_fecha", "—")),
-            metricas={
-                "acwr":            {"valor": float(row["acwr"]),       "estado": ""},
-                "delta_pct":       {"valor": float(row["delta_pct"]),  "estado": ""},
-                "z_meso":          {"valor": float(row["z_meso"]),     "estado": ""},
-                "beta7":           {"valor": float(row["beta_aguda"]), "estado": ""},
-                "beta28":          {"valor": float(row["beta_28"]),    "estado": ""},
-                "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
-                "dqi":             {"valor": float(row.get("dqi", 0)), "estado": row.get("calidad_dato", "")},
-            },
-        )
+render_athlete_profile(
+        nombre=sel,
+        posicion=row.get("posicion", "Jugador"),
+        disponible=bool(row.get("activo", True)),
+        indice_fatiga=float(row["indice_fatiga"]),
+        estado=estado_clean,
+        recomendacion=row.get("accion_primaria", row.get("accion", "—")),
+        ultima_sesion=str(row.get("ultima_fecha", "—")),
+        metricas={
+            "acwr":            {"valor": float(row["acwr"]),       "estado": ""},
+            "delta_pct":       {"valor": float(row["delta_pct"]),  "estado": ""},
+            "z_meso":          {"valor": float(row["z_meso"]),     "estado": ""},
+            "beta7":           {"valor": float(row["beta_aguda"]), "estado": ""},
+            "beta28":          {"valor": float(row["beta_28"]),    "estado": ""},
+            "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
+            "dqi":             {"valor": float(row.get("dqi", 0)), "estado": row.get("calidad_dato", "")},
+        },
+    )
 
         # ── Gráfico VMP (nuevo Plotly interactivo) ────────────────────────────
         st.markdown("#### Evolución VMP del CMJ")
