@@ -378,72 +378,72 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
     sel = st.selectbox("Selecciona un atleta:", atletas_ord)
 
    if sel:
-    row = df_res[df_res["atleta"] == sel].iloc[0]
-    m   = calcular_metricas(df_raw, sel, cfg["ventana_meso"])
-       if m is None:
-            st.warning("Datos insuficientes (mínimo 4 sesiones).")
-            return
-        m["estado"]        = row["estado"]
-        m["color"]         = row["color"]
-        m["indice_fatiga"] = row["indice_fatiga"]
-        m["mmc28"]         = row["mmc28"]
-        sub_atleta = df_raw[df_raw["Nombre"] == sel]
-        if detectar_tendencia_mpv(sub_atleta, ventana=3):   # ✅ TODO lo dependiente del atleta VA DENTRO
-        st.warning(
+           row = df_res[df_res["atleta"] == sel].iloc[0]
+           m   = calcular_metricas(df_raw, sel, cfg["ventana_meso"])
+           if m is None:
+                st.warning("Datos insuficientes (mínimo 4 sesiones).")
+                return
+            m["estado"]        = row["estado"]
+            m["color"]         = row["color"]
+            m["indice_fatiga"] = row["indice_fatiga"]
+            m["mmc28"]         = row["mmc28"]
+            sub_atleta = df_raw[df_raw["Nombre"] == sel]
+            if detectar_tendencia_mpv(sub_atleta, ventana=3):   # ✅ TODO lo dependiente del atleta VA DENTRO
+                st.warning(
             "📉 **Tendencia VMP descendente en 3 sesiones consecutivas.** "
             "Proxy de deterioro gradual del SNC — revisar carga semanal."
-        )
-    if row.get("nota_swc"):
-        st.info(f"🔵 **Filtro SWC:** {row['nota_swc']}")
+             )
+             if row.get("nota_swc"):
+                  st.info(f"🔵 **Filtro SWC:** {row['nota_swc']}")
 
-    color = row["color"]
+            color = row["color"]
 
-    calidad_badge = {
-        "alta": "🟢 Confianza Alta",
-        "media": "🟡 Confianza Media",
-        "baja": "🟠 Confianza Baja",
-        "insuficiente": "🔴 Datos Insuficientes",
-    }.get(row.get("calidad_dato", "media"), "")
+             calidad_badge = {
+              "alta": "🟢 Confianza Alta",
+              "media": "🟡 Confianza Media",
+              "baja": "🟠 Confianza Baja",
+              "insuficiente": "🔴 Datos Insuficientes",
+               }.get(row.get("calidad_dato", "media"), "")
 
-    advertencias_html = "".join(
-        f'<div style="font-size:12px;color:#f87171;margin-top:6px;'
-        f'background:#2d1b1b;border-radius:6px;padding:4px 8px;">{adv}</div>'
-        for adv in (row.get("advertencias") or [])
-    )
+             advertencias_html = "".join(
+                 f'<div style="font-size:12px;color:#f87171;margin-top:6px;'
+                f'background:#2d1b1b;border-radius:6px;padding:4px 8px;">{adv}</div>'
+                 for adv in (row.get("advertencias") or [])
+              )
 
-    # limpiar estado
-    STATUS_MAP_CLEAN = {
-        "🔴": "CRÍTICO",
-        "🟠": "FATIGA ACUMULADA",
-        "🟡": "ALERTA TEMPRANA",
-        "🟢": "ÓPTIMO",
-    }
-
-    estado_clean = row["estado"]
-    for emoji, label in STATUS_MAP_CLEAN.items():
-        if emoji in str(row["estado"]):
-            estado_clean = label
-            break
-
-    # ✅ render dentro del if
-    render_athlete_profile(
-        nombre=row.get("atleta", "—"),
-        posicion=row.get("posicion", "Jugador"),
-        disponible=bool(row.get("activo", True)),
-        indice_fatiga=float(row["indice_fatiga"]),
-        estado=estado_clean,
-        recomendacion=row.get("accion_primaria", row.get("accion", "—")),
-        ultima_sesion=str(row.get("ultima_fecha", "—")),
-        metricas={
-            "acwr": {"valor": float(row["acwr"]), "estado": ""},
-            "delta_pct": {"valor": float(row["delta_pct"]), "estado": ""},
-            "z_meso": {"valor": float(row["z_meso"]), "estado": ""},
-            "beta7": {"valor": float(row["beta_aguda"]), "estado": ""},
-            "beta28": {"valor": float(row["beta_28"]), "estado": ""},
-            "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
-            "dqi": {"valor": float(row.get("dqi", 0)), "estado": row.get("calidad_dato", "")},
-        },
-    )
+                # limpiar estado
+                STATUS_MAP_CLEAN = {
+                    "🔴": "CRÍTICO",
+                    "🟠": "FATIGA ACUMULADA",
+                    "🟡": "ALERTA TEMPRANA",
+                    "🟢": "ÓPTIMO",
+                }
+            
+                estado_clean = row["estado"]
+                for emoji, label in STATUS_MAP_CLEAN.items():
+                    if emoji in str(row["estado"]):
+                        estado_clean = label
+                        break
+            
+                # ✅ render dentro del if
+                render_athlete_profile(
+                    nombre=row.get("atleta", "—"),
+                    posicion=row.get("posicion", "Jugador"),
+                    disponible=bool(row.get("activo", True)),
+                    indice_fatiga=float(row["indice_fatiga"]),
+                    estado=estado_clean,
+                    recomendacion=row.get("accion_primaria", row.get("accion", "—")),
+                    ultima_sesion=str(row.get("ultima_fecha", "—")),
+                    metricas={
+                        "acwr": {"valor": float(row["acwr"]), "estado": ""},
+                        "delta_pct": {"valor": float(row["delta_pct"]), "estado": ""},
+                        "z_meso": {"valor": float(row["z_meso"]), "estado": ""},
+                        "beta7": {"valor": float(row["beta_aguda"]), "estado": ""},
+                        "beta28": {"valor": float(row["beta_28"]), "estado": ""},
+                        "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
+                        "dqi": {"valor": float(row.get("dqi", 0)), "estado": row.get("calidad_dato", "")},
+                    },
+                )
         # ── Gráfico VMP ────────────────────────────
         st.markdown("#### Evolución VMP del CMJ")
 
