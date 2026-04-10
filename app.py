@@ -308,47 +308,48 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
         optimos=optimos,
     )
 
-    st.markdown("---")
+    
     st.markdown("## 🚦 Semáforo de Fatiga — Todos los Atletas")
 
     # ── Barras de atletas en 2 columnas (nuevo diseño) ────────────────────────
     atletas_lista_ui = _preparar_df_atletas(df_res)
     render_athlete_bars(atletas_lista_ui)
 
-    # ── Histórico de semáforo (NUEVO — no existía) ────────────────────────────
+    # ── Histórico de semáforo ─────────────────────────────────────────────────
     st.markdown("---")
     st.markdown("## 📈 Línea Histórica de Semáforo")
     try:
-        df_hist = df_raw.copy()
-        # Calcular métricas históricas por atleta y fecha para el gráfico
-        # Usamos df_res como proxy del estado actual; para histórico completo
-        # se necesitaría iterar sesión a sesión — aquí mostramos lo disponible.
-        df_hist_plot = df_res[["atleta", "indice_fatiga", "estado", "ultima_fecha"]].copy()
-        df_hist_plot = df_hist_plot.rename(columns={
-            "atleta": "nombre",
-            "indice_fatiga": "score",
-            "ultima_fecha": "fecha",
-        })
-        # Limpiar estado para que coincida con STATUS_COLOR
-        STATUS_MAP = {
-            "🔴": "CRÍTICO", "🟠": "FATIGA ACUMULADA",
-            "🟡": "ALERTA TEMPRANA", "🟢": "ÓPTIMO",
-        }
-        def _clean_estado(e):
-            for emoji, label in STATUS_MAP.items():
-                if emoji in str(e):
-                    return label
-            return str(e)
-        df_hist_plot["estado"] = df_hist_plot["estado"].apply(_clean_estado)
-        df_hist_plot["fecha"]  = df_hist_plot["fecha"].astype(str)
-        df_hist_plot = df_hist_plot.dropna(subset=["score", "fecha"])
-        st.plotly_chart(fig_semaforo_historico(df_hist_plot), use_container_width=True)
+        with st.spinner("Calculando historial de fatiga..."):
+            frames = []
+            for atleta in atletas:
+                df_h = calcular_historial_fatiga(df_raw, atleta, simulador)
+                if df_h.empty:
+                    continue
+                df_h["nombre"] = atleta
+                frames.append(df_h)
+
+        if frames:
+            df_hist_plot = pd.concat(frames, ignore_index=True)
+            df_hist_plot["fecha"] = df_hist_plot["fecha"].astype(str)
+            df_hist_plot = df_hist_plot.rename(columns={"fatiga": "score"})
+
+            def _estado_from_score(s: float) -> str:
+                if s < 25:   return "CRÍTICO"
+                if s < 50:   return "FATIGA ACUMULADA"
+                if s < 75:   return "ALERTA TEMPRANA"
+                return "ÓPTIMO"
+
+            df_hist_plot["estado"] = df_hist_plot["score"].apply(_estado_from_score)
+            df_hist_plot = df_hist_plot.dropna(subset=["score", "fecha"])
+            st.plotly_chart(fig_semaforo_historico(df_hist_plot), use_container_width=True)
+        else:
+            st.info("El gráfico histórico estará disponible cuando haya múltiples sesiones registradas.")
     except Exception as e:
         log.warning("No se pudo renderizar histórico de semáforo: %s", e)
         st.info("El gráfico histórico estará disponible cuando haya múltiples sesiones registradas.")
 
     # ── Tabla de resultados ───────────────────────────────────────────────────
-    st.markdown("---")
+    
     st.markdown("## 📋 Tabla de Resultados")
     modo_analitico = st.toggle(
         "🔬 Modo Analítico (variables del modelo)",
@@ -443,7 +444,7 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
                 estado_clean = label
                 break
 
-        render_athlete_profile(
+       render_athlete_profile(
             nombre=sel,
             posicion=row.get("posicion", "Jugador"),
             disponible=bool(row.get("activo", True)),
@@ -458,6 +459,7 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
                 "beta7":           {"valor": float(row["beta_aguda"]), "estado": ""},
                 "beta28":          {"valor": float(row["beta_28"]),    "estado": ""},
                 "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
+                "dqi":             {"valor": float(row.get("dqi", 0)), "estado": row.get("calidad_dato", "")},
             },
         )
 
