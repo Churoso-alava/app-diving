@@ -445,7 +445,7 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
                 break
 
 render_athlete_profile(
-        nombre=sel,
+        nombre=row.get("atleta", "—"),
         posicion=row.get("posicion", "Jugador"),
         disponible=bool(row.get("activo", True)),
         indice_fatiga=float(row["indice_fatiga"]),
