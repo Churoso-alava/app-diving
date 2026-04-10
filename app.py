@@ -12,6 +12,7 @@ import streamlit as st
 import db
 import fuzzy as fz
 from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
+from services import calcular_historial_fatiga
 
 # ── Nuevos módulos de visualización ──────────────────────────────────────────
 # ── Módulos de visualización (importar directamente desde raíz) ──────────────
@@ -376,115 +377,115 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
     atletas_ord = df_res.sort_values("indice_fatiga")["atleta"].tolist()
     sel = st.selectbox("Selecciona un atleta:", atletas_ord)
 
-    if sel:
-        row = df_res[df_res["atleta"] == sel].iloc[0]
-        m   = calcular_metricas(df_raw, sel, cfg["ventana_meso"])
-        if m is None:
-            st.warning("Datos insuficientes (mínimo 4 sesiones).")
-            return
-
-        m["estado"]        = row["estado"]
-        m["color"]         = row["color"]
-        m["indice_fatiga"] = row["indice_fatiga"]
-        m["mmc28"]         = row["mmc28"]
-
-        sub_atleta = df_raw[df_raw["Nombre"] == sel]
-        if detectar_tendencia_mpv(sub_atleta, ventana=3):
-            st.warning(
-                "📉 **Tendencia VMP descendente en 3 sesiones consecutivas.** "
-                "Proxy de deterioro gradual del SNC — revisar carga semanal. "
-                "*(Weakley 2019)*"
-            )
-
-        if row.get("nota_swc"):
-            st.info(f"🔵 **Filtro SWC:** {row['nota_swc']}")
-
-        color = row["color"]
-        calidad_badge = {
-            "alta": "🟢 Confianza Alta", "media": "🟡 Confianza Media",
-            "baja": "🟠 Confianza Baja", "insuficiente": "🔴 Datos Insuficientes",
-        }.get(row.get("calidad_dato", "media"), "")
-
-        advertencias_html = "".join(
-            f'<div style="font-size:12px;color:#f87171;margin-top:6px;'
-            f'background:#2d1b1b;border-radius:6px;padding:4px 8px;">{adv}</div>'
-            for adv in (row.get("advertencias") or [])
-        )
-
-        # ── Panel de perfil atleta (nuevo diseño) ─────────────────────────────
-        STATUS_MAP_CLEAN = {
-            "🔴": "CRÍTICO", "🟠": "FATIGA ACUMULADA",
-            "🟡": "ALERTA TEMPRANA", "🟢": "ÓPTIMO",
-        }
-        estado_clean = row["estado"]
-        for emoji, label in STATUS_MAP_CLEAN.items():
-            if emoji in str(row["estado"]):
-                estado_clean = label
-                break
-
-sel = st.selectbox("Selecciona un atleta:", atletas_ord)
-
-if sel:
+   if sel:
     row = df_res[df_res["atleta"] == sel].iloc[0]
     m   = calcular_metricas(df_raw, sel, cfg["ventana_meso"])
-    # ── Panel de perfil atleta ─────────────────────────────
-    render_athlete_profile(
-            nombre=row.get("atleta", "—"),
-            posicion=row.get("posicion", "Jugador"),
-            disponible=bool(row.get("activo", True)),
-            indice_fatiga=float(row["indice_fatiga"]),
-            estado=estado_clean,
-            recomendacion=row.get("accion_primaria", row.get("accion", "—")),
-            ultima_sesion=str(row.get("ultima_fecha", "—")),
-            metricas={
-                "acwr":            {"valor": float(row["acwr"]),       "estado": ""},
-                "delta_pct":       {"valor": float(row["delta_pct"]),  "estado": ""},
-                "z_meso":          {"valor": float(row["z_meso"]),     "estado": ""},
-                "beta7":           {"valor": float(row["beta_aguda"]), "estado": ""},
-                "beta28":          {"valor": float(row["beta_28"]),    "estado": ""},
-                "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
-                "dqi":             {"valor": float(row.get("dqi", 0)), "estado": row.get("calidad_dato", "")},
-            },
+
+    if m is None:
+        st.warning("Datos insuficientes (mínimo 4 sesiones).")
+        return
+
+    m["estado"]        = row["estado"]
+    m["color"]         = row["color"]
+    m["indice_fatiga"] = row["indice_fatiga"]
+    m["mmc28"]         = row["mmc28"]
+
+    sub_atleta = df_raw[df_raw["Nombre"] == sel]
+
+    # ✅ TODO lo dependiente del atleta VA DENTRO
+    if detectar_tendencia_mpv(sub_atleta, ventana=3):
+        st.warning(
+            "📉 **Tendencia VMP descendente en 3 sesiones consecutivas.** "
+            "Proxy de deterioro gradual del SNC — revisar carga semanal."
         )
 
+    if row.get("nota_swc"):
+        st.info(f"🔵 **Filtro SWC:** {row['nota_swc']}")
+
+    color = row["color"]
+
+    calidad_badge = {
+        "alta": "🟢 Confianza Alta",
+        "media": "🟡 Confianza Media",
+        "baja": "🟠 Confianza Baja",
+        "insuficiente": "🔴 Datos Insuficientes",
+    }.get(row.get("calidad_dato", "media"), "")
+
+    advertencias_html = "".join(
+        f'<div style="font-size:12px;color:#f87171;margin-top:6px;'
+        f'background:#2d1b1b;border-radius:6px;padding:4px 8px;">{adv}</div>'
+        for adv in (row.get("advertencias") or [])
+    )
+
+    # limpiar estado
+    STATUS_MAP_CLEAN = {
+        "🔴": "CRÍTICO",
+        "🟠": "FATIGA ACUMULADA",
+        "🟡": "ALERTA TEMPRANA",
+        "🟢": "ÓPTIMO",
+    }
+
+    estado_clean = row["estado"]
+    for emoji, label in STATUS_MAP_CLEAN.items():
+        if emoji in str(row["estado"]):
+            estado_clean = label
+            break
+
+    # ✅ render dentro del if
+    render_athlete_profile(
+        nombre=row.get("atleta", "—"),
+        posicion=row.get("posicion", "Jugador"),
+        disponible=bool(row.get("activo", True)),
+        indice_fatiga=float(row["indice_fatiga"]),
+        estado=estado_clean,
+        recomendacion=row.get("accion_primaria", row.get("accion", "—")),
+        ultima_sesion=str(row.get("ultima_fecha", "—")),
+        metricas={
+            "acwr": {"valor": float(row["acwr"]), "estado": ""},
+            "delta_pct": {"valor": float(row["delta_pct"]), "estado": ""},
+            "z_meso": {"valor": float(row["z_meso"]), "estado": ""},
+            "beta7": {"valor": float(row["beta_aguda"]), "estado": ""},
+            "beta28": {"valor": float(row["beta_28"]), "estado": ""},
+            "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
+            "dqi": {"valor": float(row.get("dqi", 0)), "estado": row.get("calidad_dato", "")},
+        },
+    )
         # ── Gráfico VMP ────────────────────────────
         st.markdown("#### Evolución VMP del CMJ")
 
         vmp = np.array(m["historial"])
         fechas_dt = pd.to_datetime(m["fechas"])
         serie = pd.Series(vmp, index=fechas_dt)
-
         mma7s  = serie.rolling("7D",  min_periods=3).mean().values
         mmc28s = serie.rolling("28D", min_periods=7).mean().values
-
+        
         df_atleta_plot = pd.DataFrame({
-            "fecha": fechas_dt,
-            "vmp_hoy": vmp,
-            "mma7": mma7s,
-            "mmc28": mmc28s,
-        })
-
+                "fecha": fechas_dt,
+                "vmp_hoy": vmp,
+                "mma7": mma7s,
+                "mmc28": mmc28s,
+            })
+    
         st.plotly_chart(
-            fig_vmp_tendencia(
-                df=df_atleta_plot,
-                nombre_atleta=sel,
-                delta_pct=float(m.get("delta_pct", 0)),
-            ),
-            use_container_width=True,
-        )
-
-        with st.expander("📅 Ver historial de sesiones (últimas 20)"):
-            sub = df_raw[df_raw["Nombre"] == sel][["Fecha", "VMP_Hoy"]].tail(20)
-
-            st.dataframe(
+                fig_vmp_tendencia(
+                    df=df_atleta_plot,
+                    nombre_atleta=sel,
+                    delta_pct=float(m.get("delta_pct", 0)),
+                ),
+                use_container_width=True,
+            )
+    
+    with st.expander("📅 Ver historial de sesiones (últimas 20)"):
+        sub = df_raw[df_raw["Nombre"] == sel][["Fecha", "VMP_Hoy"]].tail(20)
+        st.dataframe(
                 sub.sort_values("Fecha", ascending=False)
                 .style.format({"VMP_Hoy": "{:.3f}"}),
                 use_container_width=True,
                 hide_index=True,
             )
-
-        with st.expander("📐 Ver Funciones de Pertenencia del Modelo"):
-            st.pyplot(fig_membership(vars_tuple))
+    
+    with st.expander("📐 Ver Funciones de Pertenencia del Modelo"):
+        st.pyplot(fig_membership(vars_tuple))
 
 # =============================================================================
 #  TAB: INGRESO DE DATOS
