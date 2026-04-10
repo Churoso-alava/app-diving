@@ -495,7 +495,8 @@ with st.expander("📅 Ver historial de sesiones (últimas 20)"):
 
     with st.expander("📐 Ver Funciones de Pertenencia del Modelo"):
         st.pyplot(fig_membership(vars_tuple))
-        return df_res
+        
+    return df_res
 
 
 # =============================================================================
