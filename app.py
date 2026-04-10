@@ -465,10 +465,11 @@ render_athlete_profile(
 
  # ── Gráfico VMP (nuevo Plotly interactivo) ────────────────────────────
 st.markdown("#### Evolución VMP del CMJ")
-    vmp    = np.array(m["historial"])
-    fechas = [str(f)[:10] for f in m["fechas"]]
-    mma7s  = pd.Series(vmp).rolling(7,  min_periods=3).mean().values
-    mmc28s = pd.Series(vmp).rolling(28, min_periods=7).mean().values
+vmp = np.array(m["historial"])
+fechas_dt = pd.to_datetime(m["fechas"])
+serie = pd.Series(vmp, index=fechas_dt)
+mma7s  = serie.rolling("7D",  min_periods=3).mean().values
+mmc28s = serie.rolling("28D", min_periods=7).mean().values
 
         df_atleta_plot = pd.DataFrame({
             "fecha": fechas,
