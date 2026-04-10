@@ -41,28 +41,6 @@ h1, h2, h3, p, label {
 from visualization.components import render_kpi_row, render_athlete_bars, render_athlete_profile
 from visualization.charts import fig_vmp_tendencia, fig_semaforo_barras, fig_semaforo_historico
 
-#error de sintaxis
-#except ModuleNotFoundError:
-    # Si falla, intenta desde archivos en raíz
-    #print("⚠️ No se encontró paquete visualization/, intentando imports alternativos...")
-    #try:
-     #   from themes import get_global_css
-      #  from charts import (
-        #    fig_vmp_tendencia,
-         #   fig_semaforo_barras,
-          #  fig_semaforo_historico,
-           # fig_membership_fuzzy,
-       # )
-        #from components import (
-         #   render_kpi_row,
-           # render_athlete_bars,
-           # render_athlete_profile,
-        #)
-        #print("✓ Imports desde raíz funcionan")
-    #except ModuleNotFoundError as e:
-     #   print(f"❌ Error crítico en imports: {e}")
-      #  raise
-
 warnings.filterwarnings("ignore")
 
 # =============================================================================
@@ -444,60 +422,69 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
                 estado_clean = label
                 break
 
-for _, row in df_res.iterrows():
+sel = st.selectbox("Selecciona un atleta:", atletas_ord)
 
-    m = row  # o como estés manejando métricas
-
+if sel:
+    row = df_res[df_res["atleta"] == sel].iloc[0]
+    m   = calcular_metricas(df_raw, sel, cfg["ventana_meso"])
+    # ── Panel de perfil atleta ─────────────────────────────
     render_athlete_profile(
-        nombre=row.get("atleta", "—"),
-        posicion=row.get("posicion", "Jugador"),
-        disponible=bool(row.get("activo", True)),
-        indice_fatiga=float(row["indice_fatiga"]),
-        estado=row.get("estado", ""),
-        recomendacion=row.get("accion_primaria", row.get("accion", "—")),
-        ultima_sesion=str(row.get("ultima_fecha", "—")),
-        metricas={...},
-    )
+            nombre=row.get("atleta", "—"),
+            posicion=row.get("posicion", "Jugador"),
+            disponible=bool(row.get("activo", True)),
+            indice_fatiga=float(row["indice_fatiga"]),
+            estado=estado_clean,
+            recomendacion=row.get("accion_primaria", row.get("accion", "—")),
+            ultima_sesion=str(row.get("ultima_fecha", "—")),
+            metricas={
+                "acwr":            {"valor": float(row["acwr"]),       "estado": ""},
+                "delta_pct":       {"valor": float(row["delta_pct"]),  "estado": ""},
+                "z_meso":          {"valor": float(row["z_meso"]),     "estado": ""},
+                "beta7":           {"valor": float(row["beta_aguda"]), "estado": ""},
+                "beta28":          {"valor": float(row["beta_28"]),    "estado": ""},
+                "sesiones_consec": {"valor": int(row.get("n_sesiones_desc", 0)), "estado": ""},
+                "dqi":             {"valor": float(row.get("dqi", 0)), "estado": row.get("calidad_dato", "")},
+            },
+        )
 
-    # ── Gráfico VMP (nuevo Plotly interactivo) ────────────────────────────
-    st.markdown("#### Evolución VMP del CMJ")
+        # ── Gráfico VMP ────────────────────────────
+        st.markdown("#### Evolución VMP del CMJ")
 
-    vmp = np.array(m["historial"])
-    fechas_dt = pd.to_datetime(m["fechas"])
+        vmp = np.array(m["historial"])
+        fechas_dt = pd.to_datetime(m["fechas"])
+        serie = pd.Series(vmp, index=fechas_dt)
 
-    serie = pd.Series(vmp, index=fechas_dt)
+        mma7s  = serie.rolling("7D",  min_periods=3).mean().values
+        mmc28s = serie.rolling("28D", min_periods=7).mean().values
 
-    mma7s  = serie.rolling("7D",  min_periods=3).mean().values
-    mmc28s = serie.rolling("28D", min_periods=7).mean().values
-    
-    df_atleta_plot = pd.DataFrame({
-        "fecha": fechas_dt,
-        "vmp_hoy": vmp,
-        "mma7": mma7s,
-        "mmc28": mmc28s,
-    })
+        df_atleta_plot = pd.DataFrame({
+            "fecha": fechas_dt,
+            "vmp_hoy": vmp,
+            "mma7": mma7s,
+            "mmc28": mmc28s,
+        })
 
-st.plotly_chart(
-    fig_vmp_tendencia(
-        df=df_atleta_plot,
-        nombre_atleta=sel,
-        delta_pct=float(m.get("delta_pct", 0)),
-    ),
-    use_container_width=True,
-)
+        st.plotly_chart(
+            fig_vmp_tendencia(
+                df=df_atleta_plot,
+                nombre_atleta=sel,
+                delta_pct=float(m.get("delta_pct", 0)),
+            ),
+            use_container_width=True,
+        )
 
-with st.expander("📅 Ver historial de sesiones (últimas 20)"):
-    sub = df_raw[df_raw["Nombre"] == sel][["Fecha", "VMP_Hoy"]].tail(20)
+        with st.expander("📅 Ver historial de sesiones (últimas 20)"):
+            sub = df_raw[df_raw["Nombre"] == sel][["Fecha", "VMP_Hoy"]].tail(20)
 
-    st.dataframe(
-        sub.sort_values("Fecha", ascending=False)
-        .style.format({"VMP_Hoy": "{:.3f}"}),
-        use_container_width=True,
-        hide_index=True,
-    )
+            st.dataframe(
+                sub.sort_values("Fecha", ascending=False)
+                .style.format({"VMP_Hoy": "{:.3f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
 
-with st.expander("📐 Ver Funciones de Pertenencia del Modelo"):
-    st.pyplot(fig_membership(vars_tuple))
+        with st.expander("📐 Ver Funciones de Pertenencia del Modelo"):
+            st.pyplot(fig_membership(vars_tuple))
 
 # =============================================================================
 #  TAB: INGRESO DE DATOS
