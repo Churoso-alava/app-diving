@@ -27,7 +27,7 @@ _GAP_MIN, _GAP_MAX = 1.0, 7.0
 
 
 # =============================================================================
-#  FASE 4 — VALIDACIÓN DE ENTRADA (SessionInput)
+#  VALIDACIÓN DE ENTRADA (SessionInput)
 # =============================================================================
 
 @dataclass
@@ -226,24 +226,79 @@ def detectar_tendencia_mpv(df_atleta: pd.DataFrame, ventana: int = 3) -> bool:
     return bool(all(ultimas[i] > ultimas[i + 1] for i in range(len(ultimas) - 1)))
 
 
-def calcular_historial_fatiga(df, atleta, simulador):
-    resultados = []
+def calcular_historial_fatiga(
+    df: pd.DataFrame,
+    atleta: str,
+    simulador,
+    ventana_meso: int = 28,
+) -> pd.DataFrame:
+    """
+    Calcula el índice de fatiga para cada punto temporal del historial del atleta.
 
-    sub = df[df["Nombre"] == atleta].sort_values("Fecha")
+    Estrategia: itera acumulando sesiones; df_slice conserva columna 'Nombre'
+    para que calcular_metricas pueda filtrar internamente.
+
+    Complejidad: O(n²) — aceptable hasta ~100 sesiones.
+    Para escalabilidad futura usar calcular_historial_fatiga_fast.
+    """
+    sub = df[df["Nombre"] == atleta].sort_values("Fecha").reset_index(drop=True)
+    resultados = []
 
     for i in range(4, len(sub) + 1):
         df_slice = sub.iloc[:i]
 
-        metricas = calcular_metricas(df_slice, atleta)
+        metricas = calcular_metricas(df_slice, atleta, ventana_meso)
         if not metricas:
             continue
 
         resultado = evaluar_atleta(simulador, metricas)
 
         resultados.append({
-            "fecha": df_slice["Fecha"].iloc[-1],
+            "fecha":  df_slice["Fecha"].iloc[-1],
             "fatiga": resultado["indice_fatiga"],
-            "dqi": metricas["dqi"]
+            "estado": resultado.get("estado", ""),
+            "dqi":    metricas["dqi"],
         })
 
     return pd.DataFrame(resultados)
+
+
+# =============================================================================
+#  PIPELINE UNIFICADO
+# =============================================================================
+
+def pipeline_batch(
+    df: pd.DataFrame,
+    simulador,
+    ventana_meso: int = 28,
+) -> pd.DataFrame:
+    """
+    Ejecuta el pipeline completo (métricas + inferencia fuzzy) para todos los
+    atletas en df. Reemplaza el bucle manual en app.py.
+
+    Retorna DataFrame con una fila por atleta (columnas de métricas + resultado fuzzy).
+    """
+    atletas = sorted(df["Nombre"].unique())
+    resultados = []
+    for atleta in atletas:
+        metricas = calcular_metricas(df, atleta, ventana_meso)
+        if not metricas:
+            continue
+        res = evaluar_atleta(simulador, metricas)
+        resultados.append({**metricas, **res})
+    return pd.DataFrame(resultados)
+
+
+def pipeline_historial(
+    df: pd.DataFrame,
+    atleta: str,
+    simulador,
+    ventana_meso: int = 28,
+) -> pd.DataFrame:
+    """
+    Genera el histórico de índice de fatiga para un atleta, pasando ventana_meso
+    de forma consistente en cada iteración.
+
+    Delega en calcular_historial_fatiga para mantener un único punto de verdad.
+    """
+    return calcular_historial_fatiga(df, atleta, simulador, ventana_meso)
