@@ -377,7 +377,9 @@ def tab_dashboard(df_raw: pd.DataFrame, simulador, vars_tuple, cfg: dict):
     atletas_ord = df_res.sort_values("indice_fatiga")["atleta"].tolist()
     sel = st.selectbox("Selecciona un atleta:", atletas_ord)
 
-   if sel:
+   if not atletas_ord:
+    st.warning("No hay atletas disponibles")
+    return
            row = df_res[df_res["atleta"] == sel].iloc[0]
            m   = calcular_metricas(df_raw, sel, cfg["ventana_meso"])
            if m is None:
