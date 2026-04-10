@@ -471,27 +471,27 @@ serie = pd.Series(vmp, index=fechas_dt)
 mma7s  = serie.rolling("7D",  min_periods=3).mean().values
 mmc28s = serie.rolling("28D", min_periods=7).mean().values
 
-        df_atleta_plot = pd.DataFrame({
-            "fecha": fechas,
-            "vmp_hoy": vmp,
-            "mma7":    mma7s,
-            "mmc28":   mmc28s,
+df_atleta_plot = pd.DataFrame({
+    "fecha": fechas,
+    "vmp_hoy": vmp,
+    "mma7":    mma7s,
+    "mmc28":   mmc28s,
         })
-        st.plotly_chart(
-            fig_vmp_tendencia(
-                df=df_atleta_plot,
-                nombre_atleta=sel,
-                delta_pct=float(m.get("delta_pct", 0)),
-            ),
-            use_container_width=True,
+st.plotly_chart(
+    fig_vmp_tendencia(
+        df=df_atleta_plot,
+        nombre_atleta=sel,
+        delta_pct=float(m.get("delta_pct", 0)),
+        ),    
+        use_container_width=True,
         )
 
-        with st.expander("📅 Ver historial de sesiones (últimas 20)"):
-            sub = df_raw[df_raw["Nombre"] == sel][["Fecha", "VMP_Hoy"]].tail(20)
-            st.dataframe(
-                sub.sort_values("Fecha", ascending=False).style.format({"VMP_Hoy": "{:.3f}"}),
-                use_container_width=True, hide_index=True,
-            )
+with st.expander("📅 Ver historial de sesiones (últimas 20)"):
+    sub = df_raw[df_raw["Nombre"] == sel][["Fecha", "VMP_Hoy"]].tail(20)
+    st.dataframe(
+        sub.sort_values("Fecha", ascending=False).style.format({"VMP_Hoy": "{:.3f}"}),
+        use_container_width=True, hide_index=True,
+        )
 
     with st.expander("📐 Ver Funciones de Pertenencia del Modelo"):
         st.pyplot(fig_membership(vars_tuple))
