@@ -1,7 +1,6 @@
 """
 visualization/charts.py
 Funciones Plotly para NMF-Optimizer (tema oscuro)
-Reemplaza todos los st.pyplot(fig) del app.py actual.
 """
 
 import plotly.graph_objects as go
@@ -49,15 +48,14 @@ _DARK_LAYOUT = dict(
 def fig_vmp_tendencia(df: pd.DataFrame, nombre_atleta: str, delta_pct: float) -> go.Figure:
     """
     Gráfico de evolución VMP del CMJ para un atleta.
-    
+
     df debe tener columnas: fecha (str), vmp_hoy (float), mma7 (float), mmc28 (float)
     delta_pct: porcentaje delta vs MMC28 para el título.
     """
     delta_str = f"+{delta_pct:.1f}%" if delta_pct >= 0 else f"{delta_pct:.1f}%"
-    
+
     fig = go.Figure()
 
-    # VMP fase propulsiva
     fig.add_trace(go.Scatter(
         x=df["fecha"], y=df["vmp_hoy"],
         mode="lines+markers",
@@ -66,7 +64,6 @@ def fig_vmp_tendencia(df: pd.DataFrame, nombre_atleta: str, delta_pct: float) ->
         marker=dict(color=COLORS["vmp_line"], size=5),
     ))
 
-    # Fatiga aguda MMA7
     fig.add_trace(go.Scatter(
         x=df["fecha"], y=df["mma7"],
         mode="lines",
@@ -74,7 +71,6 @@ def fig_vmp_tendencia(df: pd.DataFrame, nombre_atleta: str, delta_pct: float) ->
         line=dict(color=COLORS["acute_line"], width=2),
     ))
 
-    # Baseline crónico MMC28
     fig.add_trace(go.Scatter(
         x=df["fecha"], y=df["mmc28"],
         mode="lines",
@@ -82,7 +78,6 @@ def fig_vmp_tendencia(df: pd.DataFrame, nombre_atleta: str, delta_pct: float) ->
         line=dict(color=COLORS["chronic_line"], width=1.5, dash="dot"),
     ))
 
-    # Umbral alerta (~15% caída sobre MMC28)
     fig.add_trace(go.Scatter(
         x=df["fecha"], y=df["mmc28"] * 0.85,
         mode="lines",
@@ -91,7 +86,6 @@ def fig_vmp_tendencia(df: pd.DataFrame, nombre_atleta: str, delta_pct: float) ->
         showlegend=True,
     ))
 
-    # Umbral crítico (~25% caída sobre MMC28)
     fig.add_trace(go.Scatter(
         x=df["fecha"], y=df["mmc28"] * 0.75,
         mode="lines",
@@ -100,36 +94,44 @@ def fig_vmp_tendencia(df: pd.DataFrame, nombre_atleta: str, delta_pct: float) ->
         showlegend=True,
     ))
 
-    layout = dict(
+    fig.update_layout(**_DARK_LAYOUT)
+    fig.update_layout(
         title=dict(
             text=f"Evolución VMP del CMJ — {nombre_atleta}  [Δ vs MMC28: {delta_str}]",
             font=dict(size=13, color=COLORS["text_primary"]),
             x=0.01,
         ),
-        **_DARK_LAYOUT,
+        margin=dict(l=40, r=20, t=52, b=32),
     )
-    layout["margin"] = dict(l=40, r=20, t=52, b=32)
-    fig.update_layout(**layout)
     return fig
 
 
 def fig_semaforo_barras(df_estado: pd.DataFrame) -> go.Figure:
     """
     Gráfico de barras horizontales con estado de cada atleta.
-    
+    CAMBIOS P3:
+      - sort_values("score", ascending=True)  → peor primero arriba
+      - range=[0, 115] explícito en eje X
+      - Líneas verticales en x=50 (umbral alerta) y x=75 (umbral óptimo)
+      - Etiqueta "XX% — ESTADO" en texto de la barra
+
     df_estado columnas: nombre (str), score (float 0-100), estado (str), fecha (str)
     """
+    # P3: ordenar ASC → peores arriba en la gráfica horizontal
     df = df_estado.sort_values("score", ascending=True).copy()
     colores = [STATUS_COLOR.get(e, COLORS["text_muted"]) for e in df["estado"]]
+
+    # Etiqueta enriquecida: "88% — ÓPTIMO"
+    labels = [f"{s:.0f}% — {e}" for s, e in zip(df["score"], df["estado"])]
 
     fig = go.Figure(go.Bar(
         x=df["score"],
         y=df["nombre"],
         orientation="h",
         marker_color=colores,
-        text=[f"{s:.0f}%" for s in df["score"]],
+        text=labels,
         textposition="outside",
-        textfont=dict(size=12, color=COLORS["text_primary"]),
+        textfont=dict(size=11, color=COLORS["text_primary"]),
         customdata=df[["estado", "fecha"]].values,
         hovertemplate=(
             "<b>%{y}</b><br>"
@@ -139,25 +141,36 @@ def fig_semaforo_barras(df_estado: pd.DataFrame) -> go.Figure:
         ),
     ))
 
-    layout = dict(
+    # P3: líneas de referencia verticales
+    fig.add_vline(x=50, line_dash="dot", line_color=COLORS["accum_fatigue"],
+                  line_width=1, opacity=0.5,
+                  annotation_text="Alerta", annotation_font_size=9,
+                  annotation_font_color=COLORS["accum_fatigue"],
+                  annotation_position="top")
+    fig.add_vline(x=75, line_dash="dot", line_color=COLORS["optimal"],
+                  line_width=1, opacity=0.5,
+                  annotation_text="Óptimo", annotation_font_size=9,
+                  annotation_font_color=COLORS["optimal"],
+                  annotation_position="top")
+
+    # P3: construir layout sin duplicar xaxis (ya presente en _DARK_LAYOUT)
+    fig.update_layout(**_DARK_LAYOUT)
+    fig.update_layout(
         title=dict(
-            text="Estado Actual — Todos los Atletas",
+            text="Estado Actual — Todos los Atletas (ordenado por severidad)",
             font=dict(size=13, color=COLORS["text_primary"]),
             x=0.01,
         ),
-        xaxis=dict(range=[0, 115], showgrid=False, showticklabels=False),
-        **_DARK_LAYOUT,
+        margin=dict(l=110, r=60, t=48, b=12),
     )
-    layout["margin"] = dict(l=110, r=60, t=48, b=12)
-    fig.update_layout(**layout)
+    # Sobreescribir xaxis después para que range=[0,125] prevalezca
+    fig.update_xaxes(range=[0, 125], showgrid=False, showticklabels=False)
     return fig
 
 
-def fig_semaforo_historico(df_hist: pd.DataFrame) -> go.Figure:
+def fig_semaforo_historico(df_hist: pd.DataFrame, titulo: str | None = None) -> go.Figure:
     """
-    NUEVO — Línea histórica del semáforo (no existía).
-    Muestra la evolución del score de readiness para cada atleta en el tiempo.
-    
+    Línea histórica del semáforo.
     df_hist columnas: fecha (str), nombre (str), score (float), estado (str)
     """
     fig = go.Figure()
@@ -166,7 +179,6 @@ def fig_semaforo_historico(df_hist: pd.DataFrame) -> go.Figure:
         grupo = grupo.sort_values("fecha")
         colores_puntos = [STATUS_COLOR.get(e, COLORS["text_muted"]) for e in grupo["estado"]]
 
-        # Línea de tendencia
         fig.add_trace(go.Scatter(
             x=grupo["fecha"],
             y=grupo["score"],
@@ -186,7 +198,6 @@ def fig_semaforo_historico(df_hist: pd.DataFrame) -> go.Figure:
             ),
         ))
 
-    # Bandas de referencia
     for nivel, y_val, color in [
         ("Crítico", 30,  COLORS["critical"]),
         ("Alerta",  55,  COLORS["alert_dash"]),
@@ -203,17 +214,21 @@ def fig_semaforo_historico(df_hist: pd.DataFrame) -> go.Figure:
             annotation_position="right",
         )
 
-    layout = dict(
+    _titulo_text = (
+        f"Historial de Fatiga — {titulo}"
+        if titulo else
+        "Línea Histórica de Semáforo — Evolución del Readiness"
+    )
+    fig.update_layout(**_DARK_LAYOUT)
+    fig.update_layout(
         title=dict(
-            text="Línea Histórica de Semáforo — Evolución del Readiness",
+            text=_titulo_text,
             font=dict(size=13, color=COLORS["text_primary"]),
             x=0.01,
         ),
-        yaxis=dict(range=[0, 105], title="Score de Readiness (%)"),
-        **_DARK_LAYOUT,
+        margin=dict(l=50, r=80, t=52, b=32),
     )
-    layout["margin"] = dict(l=50, r=80, t=52, b=32)
-    fig.update_layout(**layout)
+    fig.update_yaxes(range=[0, 105], title="Score de Readiness (%)")
     return fig
 
 
@@ -239,16 +254,15 @@ def fig_membership_fuzzy(x_vals, membership_vals: dict) -> go.Figure:
             fillcolor=colores_memb.get(nombre, COLORS["accent"]).replace(")", ",0.08)").replace("rgb(", "rgba("),
         ))
 
-    layout = dict(
+    fig.update_layout(**_DARK_LAYOUT)
+    fig.update_layout(
         title=dict(
             text="Funciones de Membresía — Motor Difuso",
-            font=dict(size=13),
+            font=dict(size=13, color=COLORS["text_primary"]),
             x=0.01,
         ),
-        xaxis=dict(title="Índice de Fatiga"),
-        yaxis=dict(title="Grado de Membresía", range=[0, 1.05]),
-        **_DARK_LAYOUT,
+        margin=dict(l=50, r=20, t=48, b=40),
     )
-    layout["margin"] = dict(l=50, r=20, t=48, b=40)
-    fig.update_layout(**layout)
+    fig.update_xaxes(title="Índice de Fatiga")
+    fig.update_yaxes(title="Grado de Membresía", range=[0, 1.05])
     return fig
