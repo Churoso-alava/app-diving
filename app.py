@@ -474,6 +474,65 @@ def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
 
     notas_val = st.text_input("Notas (opcional)", key="form_notas",
                               placeholder="Observaciones de la sesión...")
+
+    # --- Sección Clavados (nueva) ---
+    with st.expander("🤿 Registro de Clavados (opcional)", expanded=False):
+        st.caption("Completa para calcular Carga Integrada con equivalencia por altura FINA.")
+        n_clavados = st.number_input("Número de clavados ejecutados", min_value=0,
+                                      max_value=30, value=0, step=1, key="n_clavados")
+        clavados_input = []
+        for i in range(int(n_clavados)):
+            st.markdown(f"**Clavado {i+1}**")
+            col_h, col_dd, col_tipo = st.columns(3)
+            with col_h:
+                h = st.selectbox("Altura", [1.0, 3.0, 5.0, 7.5, 10.0],
+                                 key=f"h_{i}", format_func=lambda x: f"{x}m")
+            with col_dd:
+                dd = st.number_input("DD (FINA)", min_value=1.2, max_value=4.4,
+                                     value=2.0, step=0.1, key=f"dd_{i}")
+            with col_tipo:
+                tipo = st.selectbox("Tipo", ["HEAD", "FEET", "TWIST", "PIKE", "SYNC"],
+                                   key=f"tipo_{i}")
+            clavados_input.append({"altura": h, "dd": dd, "tipo": tipo})
+
+        st.markdown("---")
+        st.markdown("**Wellness (Hooper Modificado)**")
+        col_w1, col_w2, col_w3 = st.columns(3)
+        with col_w1:
+            w_sueno  = st.slider("Sueño (1=óptimo)", 1, 7, 4, key="w_sueno")
+            w_fatiga = st.slider("Fatiga (1=óptimo)", 1, 7, 4, key="w_fatiga")
+        with col_w2:
+            w_estres = st.slider("Estrés (1=óptimo)", 1, 7, 4, key="w_estres")
+            w_dolor  = st.slider("Dolor muscular (1=óptimo)", 1, 7, 4, key="w_dolor")
+        with col_w3:
+            w_humor  = st.slider("Humor (7=óptimo)", 1, 7, 4, key="w_humor")
+
+        if clavados_input:
+            from diving_load import (carga_bruta_sesion as _cbs, normalizar_carga as _nc,
+                                      calcular_wellness as _cw, carga_integrada as _ci_fn)
+            from fuzzy_diving import mf_ci, CONJUNTOS_CI, conjunto_dominante_ci
+
+            _l_bruta   = _cbs(clavados_input)
+            _l_norm    = _nc(_l_bruta)
+            _w_norm    = _cw(sueno=w_sueno, fatiga=w_fatiga,
+                             estres=w_estres, dolor=w_dolor, humor=w_humor)
+            _ci        = _ci_fn(_l_norm, _w_norm)
+            _dominante = conjunto_dominante_ci(_ci)
+            _color_map = {
+                "RECUPERACION": "#2ecc71",
+                "MANTENIMIENTO": "#f1c40f",
+                "DESARROLLO": "#e67e22",
+                "SOBRECARGA": "#e74c3c",
+            }
+            _grado = mf_ci[_dominante](_ci)
+            st.metric("Carga Integrada (CI)", f"{_ci:.1f} / 200",
+                      delta=f"W_norm: {_w_norm:.2f} · L_norm: {_l_norm:.1f}%")
+            st.markdown(
+                f'<span style="color:{_color_map[_dominante]};font-weight:bold;">' +
+                f'Zona difusa dominante: {_dominante} (μ={_grado:.2f})</span>',
+                unsafe_allow_html=True,
+            )
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     if not df_raw.empty:
