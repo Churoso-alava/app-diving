@@ -138,6 +138,24 @@ h1, h2, h3, p, label {{
     font-size: 13px;
     color: {COLORS['text_primary']};
 }}
+/* P1 — Zona B: tarjeta de métrica primaria con borde de color semafórico */
+.metric-primary {{
+    background: {COLORS['card_bg']};
+    border: 1px solid {COLORS['card_border']};
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+}}
+.metric-primary-value {{
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin: 4px 0;
+}}
+.metric-mini-badge-block {{
+    margin: 4px 0;
+}}
+/* Tarjeta secundaria */
 .metric-mini {{
     background: {COLORS['card_bg']};
     border: 1px solid {COLORS['card_border']};
