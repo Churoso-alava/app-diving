@@ -13,6 +13,7 @@ from visualization.charts import (
     fig_vmp_tendencia,
     fig_semaforo_barras,
     fig_semaforo_historico,
+    fig_historial_barras_atleta,
     fig_membership_fuzzy,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "fig_vmp_tendencia",
     "fig_semaforo_barras",
     "fig_semaforo_historico",
+    "fig_historial_barras_atleta",
     "fig_membership_fuzzy",
     "render_kpi_row",
     "render_athlete_bars",
