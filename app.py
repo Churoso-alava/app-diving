@@ -236,6 +236,7 @@ def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
             )
             if file_imp is not None:
                 df_imp = pd.read_csv(file_imp)
+                df_imp =normalize_columns(df_imp)
 
                 # ── Guard V-DOS UI ────────────────────────────────────────────
                 if len(df_imp) > db.MAX_IMPORT_ROWS:
