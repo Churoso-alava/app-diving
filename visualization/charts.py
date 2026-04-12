@@ -232,6 +232,69 @@ def fig_semaforo_historico(df_hist: pd.DataFrame, titulo: str | None = None) -> 
     return fig
 
 
+def fig_historial_barras_atleta(df_hist: pd.DataFrame, nombre: str) -> go.Figure:
+    """
+    Gráfico de barras de historial de fatiga para UN atleta (últimas 12 sesiones).
+    Elimina el ruido visual del gráfico de líneas multi-atleta.
+
+    df_hist columnas: fecha (str|datetime), fatiga (float 0-100), estado (str)
+    """
+    _STATUS_CLEAN = {
+        "🔴 CRÍTICO": "CRÍTICO",
+        "🟠 FATIGA ACUMULADA": "FATIGA ACUMULADA",
+        "🟡 ALERTA TEMPRANA": "ALERTA TEMPRANA",
+        "🟢 ÓPTIMO": "ÓPTIMO",
+    }
+    df = df_hist.copy()
+    df["fecha"] = df["fecha"].astype(str)
+    df = df.sort_values("fecha").tail(12)
+
+    def _clean(e: str) -> str:
+        return _STATUS_CLEAN.get(str(e), str(e))
+
+    colores = [STATUS_COLOR.get(_clean(e), COLORS["text_muted"]) for e in df["estado"]]
+
+    fig = go.Figure(go.Bar(
+        x=df["fecha"],
+        y=df["fatiga"],
+        marker_color=colores,
+        marker_line_width=0,
+        text=[f"{v:.0f}" for v in df["fatiga"]],
+        textposition="outside",
+        textfont=dict(size=8, color=COLORS["text_primary"]),
+        hovertemplate=(
+            f"<b>{nombre}</b><br>"
+            "Fecha: %{x}<br>"
+            "Score: %{y:.0f}<extra></extra>"
+        ),
+    ))
+
+    for y_val, color in [(25, COLORS["critical"]), (50, COLORS["accum_fatigue"]), (75, COLORS["optimal"])]:
+        fig.add_hline(
+            y=y_val, line_dash="dot",
+            line_color=color, opacity=0.35, line_width=1,
+        )
+
+    fig.update_layout(**_DARK_LAYOUT)
+    fig.update_layout(
+        title=dict(
+            text=nombre,
+            font=dict(size=11, color=COLORS["text_primary"]),
+            x=0.02,
+        ),
+        margin=dict(l=8, r=8, t=28, b=8),
+        height=200,
+        showlegend=False,
+    )
+    fig.update_yaxes(range=[0, 115], showgrid=False, showticklabels=False, zeroline=False)
+    fig.update_xaxes(
+        tickangle=-45,
+        tickfont=dict(size=7, color=COLORS["text_muted"]),
+        showgrid=False,
+    )
+    return fig
+
+
 def fig_membership_fuzzy(x_vals, membership_vals: dict) -> go.Figure:
     """
     Curvas de membresía difusa (reemplaza matplotlib).
