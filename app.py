@@ -7,6 +7,17 @@ RBAC: membresía fuzzy solo if rol_usuario == 'analitico'
 Security: MAX_IMPORT_ROWS referenciado desde db (única fuente de verdad)
 """
 from __future__ import annotations
+import pandas as pd
+
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "_")
+    )
+    return df
+
 
 import logging
 from datetime import date
