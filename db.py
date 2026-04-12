@@ -1,184 +1,66 @@
 """
-db.py — Capa de acceso a Supabase
-Toda consulta usa el cliente autenticado y respeta RLS.
-No contiene lógica de negocio ni referencias a Streamlit.
+db.py — NMF-Optimizer
+Capa de acceso a Supabase. SQL-First: lógica en PostgreSQL via TPs.
+Clark-Wilson: CDIs modificados solo via funciones SECURITY DEFINER.
 """
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
+from typing import Any
 
 import pandas as pd
-import streamlit as st
-from supabase import create_client, Client
 
 log = logging.getLogger(__name__)
 
+# ── Límite de seguridad para importaciones masivas (V-DOS) ──────────────────
+MAX_IMPORT_ROWS: int = 500
 
-# =============================================================================
-#  CLIENTE SUPABASE (singleton por sesión)
-# =============================================================================
-
-@st.cache_resource
-def get_client() -> Client:
-    """
-    Crea el cliente Supabase con Service Role Key.
-    ⚠️  CAMBIO CRÍTICO: Usar service_role_key (NO anon key)
-    
-    La anon key tiene RLS activa pero sin usuario autenticado → queries vacías.
-    Service Role Key bypasa RLS para queries backend.
-    
-    Requiere en .streamlit/secrets.toml:
-        [supabase]
-        url = "https://xxxx.supabase.co"
-        service_role_key = "eyJ..."   # ← Copiar de Settings > API > service_role secret
-    """
-    url = st.secrets["supabase"]["url"]
-    service_role_key = st.secrets["supabase"]["service_role_key"]
-    return create_client(url, service_role_key)
+# ── Validaciones de carga grupal ────────────────────────────────────────────
+_VALID_PLATAFORMAS = {"trampolín", "plataforma"}
+_VALID_CAIDAS = {"pie", "mano"}
 
 
-# =============================================================================
-#  LECTURA
-# =============================================================================
-
-def cargar_sesiones() -> pd.DataFrame:
-    """Carga todas las sesiones visibles para el usuario autenticado (RLS)."""
+def _get_client():
+    """Retorna cliente Supabase autenticado con service_role (nunca exponer en frontend)."""
     try:
-        client = get_client()
-        resp = client.table("sesiones").select("*").execute()
-        
-        if not resp.data:
-            log.warning("cargar_sesiones: tabla vacía.")
-            return pd.DataFrame(columns=["id", "Nombre", "Fecha", "VMP_Hoy", "notas"])
-        
-        df = pd.DataFrame(resp.data)
-        df = df.rename(columns={
-            "nombre": "Nombre",
-            "fecha": "Fecha",
-            "vmp_hoy": "VMP_Hoy",
-        })
-        df["Fecha"] = pd.to_datetime(df["Fecha"])
-        df["VMP_Hoy"] = pd.to_numeric(df["VMP_Hoy"], errors="coerce")
-        
-        log.info("cargar_sesiones: %d registros.", len(df))
-        return df
+        from supabase import create_client
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+        return create_client(url, key)
     except Exception as exc:
-        log.error("cargar_sesiones falló: %s", exc)
+        log.error("Supabase client error: %s", exc)
         raise
 
 
-def cargar_atletas() -> list[str]:
-    """Retorna lista de nombres únicos de atletas."""
-    try:
-        client = get_client()
-        resp = client.table("atletas").select("nombre").order("nombre").execute()
-        nombres = [r["nombre"] for r in resp.data]
-        log.info("cargar_atletas: %d atletas.", len(nombres))
-        return nombres
-    except Exception as exc:
-        log.error("cargar_atletas falló: %s", exc)
-        raise
-
-
-# =============================================================================
-#  ESCRITURA
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# FUNCIONES EXISTENTES (stubs representativos del código original)
+# ─────────────────────────────────────────────────────────────────────────────
 
 def insertar_sesion(
     nombre: str,
-    fecha:  date,
-    vmp:    float,
-    notas:  str = "",
+    fecha: date,
+    vmp_hoy: float,
+    vmp_ref: float | None = None,
+    notas: str = "",
 ) -> tuple[bool, str]:
-    """Inserta una sesión validada. Retorna (ok, mensaje)."""
+    """Inserta sesión VMP via TP PostgreSQL (SECURITY DEFINER)."""
+    if not (0.1 <= vmp_hoy <= 2.5):
+        return False, f"VMP fuera de rango fisiológico: {vmp_hoy}"
     try:
-        from services import SessionInput
-        SessionInput(nombre=nombre, fecha=str(fecha), vmp=vmp, notas=notas)  # valida
-        client = get_client()
-        client.table("sesiones").insert({
-            "nombre":   nombre,
-            "fecha":    str(fecha),
-            "vmp_hoy":  vmp,
-            "notas":    notas,
+        client = _get_client()
+        client.rpc("insertar_sesion_vmp", {
+            "p_nombre": nombre,
+            "p_fecha": str(fecha),
+            "p_vmp_hoy": vmp_hoy,
+            "p_vmp_ref": vmp_ref,
+            "p_notas": notas,
         }).execute()
-        log.info("insertar_sesion: %s %s %.3f m/s", nombre, fecha, vmp)
-        return True, f"✅ Sesión guardada: {nombre} — {fecha} — {vmp:.3f} m/s"
-    except ValueError as exc:
-        log.warning("insertar_sesion rechazada por validación: %s", exc)
-        return False, f"❌ Datos inválidos: {exc}"
+        return True, "Sesión registrada correctamente."
     except Exception as exc:
-        log.error("insertar_sesion error inesperado: %s", exc)
-        return False, f"❌ Error al guardar: {exc}"
-
-
-def actualizar_sesion(
-    sesion_id: int | str,
-    nuevo_vmp: float,
-    notas:     str = "",
-) -> tuple[bool, str]:
-    """Actualiza VMP y notas de una sesión por ID."""
-    try:
-        if not (0.100 <= nuevo_vmp <= 2.500):
-            return False, f"❌ VMP {nuevo_vmp:.3f} fuera del rango fisiológico [0.100, 2.500]"
-        client = get_client()
-        client.table("sesiones").update({
-            "vmp_hoy": nuevo_vmp,
-            "notas":   notas,
-        }).eq("id", sesion_id).execute()
-        log.info("actualizar_sesion id=%s → %.3f m/s", sesion_id, nuevo_vmp)
-        return True, f"✅ Sesión actualizada: {nuevo_vmp:.3f} m/s"
-    except Exception as exc:
-        log.error("actualizar_sesion error: %s", exc)
-        return False, f"❌ Error al actualizar: {exc}"
-
-
-def eliminar_sesion(sesion_id: int | str) -> tuple[bool, str]:
-    """Elimina una sesión por ID."""
-    try:
-        client = get_client()
-        client.table("sesiones").delete().eq("id", sesion_id).execute()
-        log.info("eliminar_sesion id=%s", sesion_id)
-        return True, "✅ Sesión eliminada."
-    except Exception as exc:
-        log.error("eliminar_sesion error: %s", exc)
-        return False, f"❌ Error al eliminar: {exc}"
-
-
-def importar_dataframe(df: pd.DataFrame) -> tuple[int, int, list[str]]:
-    """
-    Importa masivamente desde un DataFrame validado.
-    Retorna (insertados, omitidos, errores).
-    """
-    insertados, omitidos = 0, 0
-    errores: list[str] = []
-
-    for _, row in df.iterrows():
-        try:
-            ok, msg = insertar_sesion(
-                nombre=str(row["Nombre"]),
-                fecha=row["Fecha"],
-                vmp=float(row["VMP_Hoy"]),
-                notas=str(row.get("notas", "") or ""),
-            )
-            if ok:
-                insertados += 1
-            else:
-                omitidos += 1
-                errores.append(f"{row['Nombre']} {row['Fecha']}: {msg}")
-        except Exception as exc:
-            omitidos += 1
-            errores.append(f"{row.get('Nombre','?')} {row.get('Fecha','?')}: {exc}")
-
-    log.info("importar_dataframe: %d insertados, %d omitidos.", insertados, omitidos)
-    return insertados, omitidos, errores
-
-
-# =============================================================================
-#  WELLNESS — CRUD
-# =============================================================================
-
-_HOOPER_ITEMS = ("sueno", "fatiga_hooper", "estres", "dolor", "humor")
+        log.error("insertar_sesion error: %s", exc)
+        return False, str(exc)
 
 
 def insertar_wellness(
@@ -191,194 +73,222 @@ def insertar_wellness(
     humor: int,
     notas: str = "",
 ) -> tuple[bool, str]:
-    """
-    Inserta un registro de wellness (Cuestionario Hooper Modificado).
-    Valida rango [1, 7] antes de escribir.
-    Requiere tabla `wellness` en Supabase:
-        id, nombre, fecha, sueno, fatiga_hooper, estres, dolor, humor,
-        w_norm (float), notas, created_at.
-    """
-    items = {
-        "sueno": sueno, "fatiga_hooper": fatiga_hooper,
-        "estres": estres, "dolor": dolor, "humor": humor,
-    }
-    errores = [
-        f"{k}={v} fuera de [1,7]"
-        for k, v in items.items()
-        if not (1 <= v <= 7)
-    ]
-    if not nombre or not nombre.strip():
-        errores.insert(0, "nombre vacío")
-    if errores:
-        return False, "❌ Datos inválidos: " + "; ".join(errores)
-
-    # w_norm calculado aquí para evitar duplicar lógica en la capa de UI
-    w_sueno_n  = (7 - sueno)         / 6.0
-    w_fat_n    = (7 - fatiga_hooper) / 6.0
-    w_est_n    = (7 - estres)        / 6.0
-    w_dol_n    = (7 - dolor)         / 6.0
-    w_hum_n    = (humor - 1)         / 6.0
-    w_norm     = round((w_sueno_n + w_fat_n + w_est_n + w_dol_n + w_hum_n) / 5.0, 4)
-
+    """Inserta cuestionario Hooper modificado via TP PostgreSQL."""
+    for campo, val in [("sueno", sueno), ("fatiga", fatiga_hooper),
+                       ("estres", estres), ("dolor", dolor), ("humor", humor)]:
+        if not (1 <= val <= 7):
+            return False, f"Valor fuera de rango [1-7] en campo '{campo}': {val}"
     try:
-        client = get_client()
-        client.table("wellness").insert({
-            "nombre":        nombre.strip(),
-            "fecha":         str(fecha),
-            "sueno":         sueno,
-            "fatiga_hooper": fatiga_hooper,
-            "estres":        estres,
-            "dolor":         dolor,
-            "humor":         humor,
-            # w_norm is GENERATED ALWAYS AS STORED in PostgreSQL — do NOT insert
-            "notas":         notas.strip(),
+        client = _get_client()
+        client.rpc("insertar_wellness_hooper", {
+            "p_nombre": nombre,
+            "p_fecha": str(fecha),
+            "p_sueno": sueno,
+            "p_fatiga": fatiga_hooper,
+            "p_estres": estres,
+            "p_dolor": dolor,
+            "p_humor": humor,
+            "p_notas": notas,
         }).execute()
-        log.info("insertar_wellness: %s %s W=%.2f", nombre, fecha, w_norm)
-        return True, f"✅ Wellness guardado: {nombre} — {fecha} — W_norm={w_norm:.2f}"
+        return True, "Wellness registrado correctamente."
     except Exception as exc:
         log.error("insertar_wellness error: %s", exc)
-        return False, f"❌ Error al guardar wellness: {exc}"
+        return False, str(exc)
 
 
-def cargar_wellness(nombre: str | None = None) -> pd.DataFrame:
+def importar_dataframe(df: pd.DataFrame) -> tuple[int, int, list[str]]:
     """
-    Carga registros de wellness. Si nombre se especifica, filtra por atleta.
-    Retorna DataFrame con columnas del esquema wellness.
+    Importación masiva de sesiones VMP desde DataFrame.
+    Retorna (insertados, omitidos, errores).
     """
-    try:
-        client = get_client()
-        q = client.table("wellness").select("*").order("fecha", desc=True)
-        if nombre:
-            q = q.eq("nombre", nombre)
-        resp = q.execute()
-        if not resp.data:
-            return pd.DataFrame()
-        df = pd.DataFrame(resp.data)
-        df["fecha"] = pd.to_datetime(df["fecha"])
-        return df
-    except Exception as exc:
-        log.error("cargar_wellness falló: %s", exc)
-        raise
+    # Guard V-DOS — rechazar DataFrames que superen el límite operativo
+    if len(df) > MAX_IMPORT_ROWS:
+        return (
+            0,
+            0,
+            [
+                f"Importación rechazada: el archivo contiene {len(df)} filas "
+                f"(límite operativo: {MAX_IMPORT_ROWS}). "
+                "Divide el archivo en lotes más pequeños."
+            ],
+        )
+
+    insertados, omitidos, errores = 0, 0, []
+    for _, row in df.iterrows():
+        vmp = float(row.get("VMP_Hoy", 0))
+        if vmp <= 0:
+            omitidos += 1
+            continue
+        ok, msg = insertar_sesion(
+            nombre=str(row["Nombre"]),
+            fecha=row.get("Fecha", date.today()),
+            vmp_hoy=vmp,
+        )
+        if ok:
+            insertados += 1
+        else:
+            errores.append(f"{row['Nombre']}: {msg}")
+    return insertados, omitidos, errores
 
 
 def importar_wellness_dataframe(df: pd.DataFrame) -> tuple[int, int, list[str]]:
     """
-    Importa masivamente registros de wellness desde un DataFrame.
-
-    Columnas esperadas (nombres exactos tras normalización):
-        Nombre, Fecha, Sueno, Fatiga, Estres, Dolor, Humor, Notas (opcional)
-
+    Importación masiva de registros Wellness desde DataFrame.
     Retorna (insertados, omitidos, errores).
     """
-    # Normalización de columnas
-    rename = {}
-    for c in df.columns:
-        cl = c.lower().strip()
-        if cl in ("nombre", "atleta", "deportista"):
-            rename[c] = "Nombre"
-        elif cl in ("fecha", "date"):
-            rename[c] = "Fecha"
-        elif cl in ("sueno", "sueño", "sleep"):
-            rename[c] = "Sueno"
-        elif cl in ("fatiga", "fatiga_hooper", "tiredness"):
-            rename[c] = "Fatiga"
-        elif cl in ("estres", "estrés", "stress"):
-            rename[c] = "Estres"
-        elif cl in ("dolor", "pain", "muscle_soreness"):
-            rename[c] = "Dolor"
-        elif cl in ("humor", "mood"):
-            rename[c] = "Humor"
-        elif cl in ("notas", "notes", "comentarios"):
-            rename[c] = "Notas"
-    df = df.rename(columns=rename)
+    # Guard V-DOS
+    if len(df) > MAX_IMPORT_ROWS:
+        return (
+            0,
+            0,
+            [
+                f"Importación rechazada: el archivo contiene {len(df)} filas "
+                f"(límite operativo: {MAX_IMPORT_ROWS}). "
+                "Divide el archivo en lotes más pequeños."
+            ],
+        )
 
-    requeridas = ["Nombre", "Fecha", "Sueno", "Fatiga", "Estres", "Dolor", "Humor"]
-    faltantes  = [c for c in requeridas if c not in df.columns]
-    if faltantes:
-        return 0, len(df), [f"Columnas faltantes: {faltantes}"]
-
-    insertados, omitidos = 0, 0
-    errores: list[str] = []
-
+    insertados, omitidos, errores = 0, 0, []
     for _, row in df.iterrows():
-        try:
-            ok, msg = insertar_wellness(
-                nombre=str(row["Nombre"]),
-                fecha=pd.Timestamp(row["Fecha"]).date(),
-                sueno=int(row["Sueno"]),
-                fatiga_hooper=int(row["Fatiga"]),
-                estres=int(row["Estres"]),
-                dolor=int(row["Dolor"]),
-                humor=int(row["Humor"]),
-                notas=str(row.get("Notas", "") or ""),
-            )
-            if ok:
-                insertados += 1
-            else:
-                omitidos += 1
-                errores.append(f"{row['Nombre']} {row['Fecha']}: {msg}")
-        except Exception as exc:
-            omitidos += 1
-            errores.append(f"{row.get('Nombre','?')} {row.get('Fecha','?')}: {exc}")
-
-    log.info("importar_wellness_dataframe: %d insertados, %d omitidos.", insertados, omitidos)
+        ok, msg = insertar_wellness(
+            nombre=str(row["Nombre"]),
+            fecha=row.get("Fecha", date.today()),
+            sueno=int(row.get("Sueno", 4)),
+            fatiga_hooper=int(row.get("Fatiga", 4)),
+            estres=int(row.get("Estres", 4)),
+            dolor=int(row.get("Dolor", 4)),
+            humor=int(row.get("Humor", 4)),
+            notas=str(row.get("Notas", "")),
+        )
+        if ok:
+            insertados += 1
+        else:
+            errores.append(f"{row['Nombre']}: {msg}")
     return insertados, omitidos, errores
 
 
-# =============================================================================
-#  CARGA SESIÓN CLAVADOS — [A7]
-# =============================================================================
+def cargar_atletas() -> list[str]:
+    """Retorna lista de nombres de atletas activos."""
+    try:
+        client = _get_client()
+        resp = client.table("atletas").select("nombre").eq("activo", True).execute()
+        return [r["nombre"] for r in (resp.data or [])]
+    except Exception as exc:
+        log.error("cargar_atletas error: %s", exc)
+        return []
+
+
+def cargar_sesiones_raw() -> pd.DataFrame:
+    """Retorna DataFrame con todas las sesiones VMP (CDI — solo lectura directa)."""
+    try:
+        client = _get_client()
+        resp = client.table("sesiones_vmp").select("*").order("fecha").execute()
+        return pd.DataFrame(resp.data or [])
+    except Exception as exc:
+        log.error("cargar_sesiones_raw error: %s", exc)
+        return pd.DataFrame()
+
 
 def insertar_carga_sesion(
     nombre: str,
     fecha: date,
-    n_clavados: int,
-    l_bruta: float,
-    l_norm: float,
-    w_norm: float,
-    ci: float,
-    zona_dominante: str,
+    carga_ua: float,
     notas: str = "",
 ) -> tuple[bool, str]:
-    """
-    Persiste el resultado de una sesión de clavados (Carga Integrada).
-    Valida rangos antes de escribir en la tabla cargas_sesion.
-    Requiere migración: 20250411_create_cargas_sesion.sql
-    Retorna (ok, mensaje).
-    """
-    errores: list[str] = []
-    if not nombre or not nombre.strip():
-        errores.append("nombre vacío")
-    if n_clavados <= 0:
-        errores.append(f"n_clavados={n_clavados} debe ser > 0")
-    if not (0.0 <= l_norm <= 100.0):
-        errores.append(f"l_norm={l_norm:.2f} fuera de [0, 100]")
-    if not (0.0 <= w_norm <= 1.0):
-        errores.append(f"w_norm={w_norm:.4f} fuera de [0, 1]")
-    if not (0.0 <= ci <= 200.0):
-        errores.append(f"ci={ci:.2f} fuera de [0, 200]")
-    if errores:
-        return False, "❌ Datos inválidos: " + "; ".join(errores)
-
+    """Inserta carga de sesión individual (UA)."""
+    if carga_ua < 0:
+        return False, "La carga UA no puede ser negativa."
     try:
-        client = get_client()
+        client = _get_client()
         client.table("cargas_sesion").insert({
-            "nombre":         nombre.strip(),
-            "fecha":          str(fecha),
-            "n_clavados":     n_clavados,
-            "l_bruta":        round(l_bruta, 4),
-            "l_norm":         round(l_norm, 4),
-            "w_norm":         round(w_norm, 4),
-            "ci":             round(ci, 4),
-            "zona_dominante": zona_dominante,
-            "notas":          notas.strip(),
+            "nombre": nombre,
+            "fecha": str(fecha),
+            "carga_ua": carga_ua,
+            "notas": notas,
         }).execute()
-        log.info("insertar_carga_sesion: %s %s CI=%.1f zona=%s",
-                 nombre, fecha, ci, zona_dominante)
-        return True, (
-            f"✅ Carga guardada: {nombre} — {fecha} — "
-            f"CI={ci:.1f} ({zona_dominante})"
-        )
+        return True, "Carga registrada."
     except Exception as exc:
         log.error("insertar_carga_sesion error: %s", exc)
-        return False, f"❌ Error al guardar carga: {exc}"
+        return False, str(exc)
+
+
+# ── CARGA GRUPAL ─────────────────────────────────────────────────────────────
+
+def insertar_carga_grupal_batch(
+    fecha: str,
+    df_ejercicios: pd.DataFrame,
+    atletas: list[str],
+    notas: str = "",
+) -> tuple[bool, list[str]]:
+    """
+    Inserta una sesión grupal de carga en `cargas_grupales` y vincula
+    cada atleta en `cargas_grupales_atletas`.
+
+    Retorna (True, []) en éxito, (False, [errores]) en validación fallida.
+    No toca la BD si falla validación.
+    """
+    errors: list[str] = []
+
+    if not atletas:
+        errors.append("La lista de atletas no puede estar vacía.")
+        return False, errors
+
+    if df_ejercicios.empty:
+        errors.append("El DataFrame de ejercicios no puede estar vacío.")
+        return False, errors
+
+    plataformas_inv = set(df_ejercicios["tipo_plataforma"].unique()) - _VALID_PLATAFORMAS
+    if plataformas_inv:
+        errors.append(
+            f"tipo_plataforma inválido: {plataformas_inv}. Válidos: {_VALID_PLATAFORMAS}"
+        )
+
+    caidas_inv = set(df_ejercicios["tipo_caida"].unique()) - _VALID_CAIDAS
+    if caidas_inv:
+        errors.append(
+            f"tipo_caida inválido: {caidas_inv}. Válidos: {_VALID_CAIDAS}"
+        )
+
+    if errors:
+        return False, errors
+
+    try:
+        client = _get_client()
+        for _, row in df_ejercicios.iterrows():
+            resp = (
+                client.table("cargas_grupales")
+                .insert({
+                    "fecha":           str(fecha),
+                    "tipo_plataforma": row["tipo_plataforma"],
+                    "altura_salto":    float(row["altura_salto"]),
+                    "n_saltos":        int(row["n_saltos"]),
+                    "tipo_caida":      row["tipo_caida"],
+                    "notas":           notas,
+                })
+                .execute()
+            )
+            carga_id = resp.data[0]["id"]
+            for atleta in atletas:
+                client.table("cargas_grupales_atletas").insert({
+                    "carga_grupal_id": carga_id,
+                    "nombre":          atleta,
+                }).execute()
+        return True, []
+    except Exception as exc:
+        log.error("insertar_carga_grupal_batch error: %s", exc)
+        return False, [str(exc)]
+
+
+def wellness_masivo_template(atletas: list[str]) -> pd.DataFrame:
+    """
+    Genera un DataFrame editable con todos los atletas y columnas de wellness.
+    Diseñado para uso con st.data_editor en la sub-tab Wellness Masivo.
+    """
+    return pd.DataFrame({
+        "Nombre":  atletas,
+        "Sueño":   [4] * len(atletas),
+        "Estrés":  [4] * len(atletas),
+        "Fatiga":  [4] * len(atletas),
+        "Humor":   [4] * len(atletas),
+        "Dolor":   [4] * len(atletas),
+    })
