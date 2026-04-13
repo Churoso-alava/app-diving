@@ -21,6 +21,26 @@ MAX_IMPORT_ROWS: int = 500
 _VALID_PLATAFORMAS = {"trampolín", "plataforma"}
 _VALID_CAIDAS = {"pie", "mano"}
 
+def normalizar_columnas_bien(df: pd.DataFrame) -> pd.DataFrame:
+    """Mapeo explícito de aliases a nombres estándar."""
+    rename_map = {}
+    lower_cols = {col.lower().strip(): col for col in df.columns}
+    
+    # Mapeo de aliases en múltiples idiomas
+    aliases = {
+        "nombre": ["nombre", "atleta", "deportista", "jugador"],
+        "Fecha": ["fecha", "date", "fecha_sesion"],
+        "vmp_hoy": ["vmp_hoy", "vmp", "velocidad", "mpv"],
+    }
+    
+    for target, sources in aliases.items():
+        for src in sources:
+            if src in lower_cols:
+                rename_map[lower_cols[src]] = target
+                break
+    
+    return df.rename(columns=rename_map)
+
 
 def _get_client():
     """Retorna cliente Supabase autenticado con service_role (nunca exponer en frontend)."""
