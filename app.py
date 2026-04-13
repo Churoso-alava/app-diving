@@ -191,8 +191,8 @@ def calcular_historial_batch_cached(
             continue
         df_ath = df_ath.sort_values("Fecha").tail(12).reset_index(drop=True)
         # Calcular índice de fatiga simplificado (en prod: via función PG)
-        if "VMP_Hoy" in df_ath.columns and "VMP_Ref" in df_ath.columns:
-            df_ath["delta_pct"] = ((df_ath["VMP_Hoy"] - df_ath["VMP_Ref"])
+        if "vmp_hoy" in df_ath.columns and "VMP_Ref" in df_ath.columns:
+            df_ath["delta_pct"] = ((df_ath["vmp_hoy"] - df_ath["VMP_Ref"])
                                    / df_ath["VMP_Ref"].replace(0, float("nan")) * 100)
             df_ath["fatiga"] = (100 - df_ath["delta_pct"].clip(-30, 30)
                                 .apply(lambda x: (x + 30) / 60 * 100)).clip(0, 100)
@@ -230,7 +230,7 @@ def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
         # Guard V-DOS en importación masiva CSV
         with st.expander("📂 Importación masiva CSV"):
             file_imp = st.file_uploader(
-                "Subir CSV (Nombre, Fecha, VMP_Hoy)",
+                "Subir CSV (Nombre, Fecha, vmp_hoy)",
                 type=["csv"],
                 key="imp_vmp_file",
             )
@@ -248,7 +248,7 @@ def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
                     return
                 # ─────────────────────────────────────────────────────────────
 
-                anomalias = df_imp[df_imp["VMP_Hoy"] > 2.50]
+                anomalias = df_imp[df_imp["vmp_hoy"] > 2.50]
                 if not anomalias.empty:
                     st.warning(f"⚠️ {len(anomalias)} filas con VMP > 2.50 m/s (fuera de rango).")
 
@@ -531,7 +531,7 @@ def tab_dashboard(
     indice_fatiga = float(row.get("indice_fatiga", 50.0))
 
     col_k1, col_k2, col_k3, col_k4 = st.columns(4)
-    col_k1.metric("VMP Hoy",         f"{row.get('VMP_Hoy', 0):.3f} m/s")
+    col_k1.metric("VMP Hoy",         f"{row.get('vmp_hoy', 0):.3f} m/s")
     col_k2.metric("Índice Fatiga",   f"{indice_fatiga:.1f}")
     col_k3.metric("Sesiones (30d)",  len(df_sel.tail(30)))
     col_k4.metric("Última sesión",   str(row.get("Fecha", "—")))
