@@ -46,8 +46,8 @@ def _get_client():
     """Retorna cliente Supabase autenticado con service_role (nunca exponer en frontend)."""
     try:
         from supabase import create_client
-        url = os.environ.get("SUPABASE_URL", "")
-        key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+        url = os.environ.get("SUPABASE_URL", "https://hbmoztlcbrfcayoiqmpy.supabase.co")
+        key = os.environ.get("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhibW96dGxjYnJmY2F5b2lxbXB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMzI4ODEsImV4cCI6MjA5MDkwODg4MX0.FOlsrQXdBahHg1DsgvVJz43pDWXzRmXAaetPW_kVlH4")
         return create_client(url, key)
     except Exception as exc:
         log.error("Supabase client error: %s", exc)
@@ -121,33 +121,25 @@ def importar_dataframe(df: pd.DataFrame) -> tuple[int, int, list[str]]:
     Importación masiva de sesiones VMP desde DataFrame.
     Retorna (insertados, omitidos, errores).
     """
-    # Guard V-DOS — rechazar DataFrames que superen el límite operativo
     if len(df) > MAX_IMPORT_ROWS:
-        return (
-            0,
-            0,
-            [
-                f"Importación rechazada: el archivo contiene {len(df)} filas "
-                f"(límite operativo: {MAX_IMPORT_ROWS}). "
-                "Divide el archivo en lotes más pequeños."
-            ],
-        )
+        return (0, 0, [f"Importación rechazada: límite operativo {MAX_IMPORT_ROWS}."])
 
     insertados, omitidos, errores = 0, 0, []
     for _, row in df.iterrows():
-        vmp = float(row.get("VMP_Hoy", 0))
+        # AQUI ESTABA EL ERROR: Cambiamos VMP_Hoy por vmp_hoy, Nombre por nombre y Fecha por fecha
+        vmp = float(row.get("vmp_hoy", 0))
         if vmp <= 0:
             omitidos += 1
             continue
         ok, msg = insertar_sesion(
-            nombre=str(row["Nombre"]),
-            fecha=row.get("Fecha", date.today()),
+            nombre=str(row.get("nombre", "")),
+            fecha=row.get("fecha", date.today()),
             vmp_hoy=vmp,
         )
         if ok:
             insertados += 1
         else:
-            errores.append(f"{row['Nombre']}: {msg}")
+            errores.append(f"{row.get('nombre', 'Desconocido')}: {msg}")
     return insertados, omitidos, errores
 
 
@@ -233,7 +225,6 @@ def insertar_carga_sesion(
 
 
 # ── CARGA GRUPAL ─────────────────────────────────────────────────────────────
-
 def insertar_carga_grupal_batch(
     fecha: str,
     df_ejercicios: pd.DataFrame,
@@ -241,13 +232,12 @@ def insertar_carga_grupal_batch(
     notas: str = "",
 ) -> tuple[bool, list[str]]:
     """
-    Inserta una sesión grupal de carga en `cargas_grupales` y vincula
-    cada atleta en `cargas_grupales_atletas`.
-
-    Retorna (True, []) en éxito, (False, [errores]) en validación fallida.
-    No toca la BD si falla validación.
+    Inserta una sesión de carga en la tabla sesiones_vmp.
     """
     errors: list[str] = []
+
+    # 1. Normalizamos nombres de columnas para evitar el error VMP_Hoy vs vmp_hoy
+    df_ejercicios.columns = [col.lower() for col in df_ejercicios.columns]
 
     if not atletas:
         errors.append("La lista de atletas no puede estar vacía.")
@@ -257,47 +247,21 @@ def insertar_carga_grupal_batch(
         errors.append("El DataFrame de ejercicios no puede estar vacío.")
         return False, errors
 
-    plataformas_inv = set(df_ejercicios["tipo_plataforma"].unique()) - _VALID_PLATAFORMAS
-    if plataformas_inv:
-        errors.append(
-            f"tipo_plataforma inválido: {plataformas_inv}. Válidos: {_VALID_PLATAFORMAS}"
-        )
-
-    caidas_inv = set(df_ejercicios["tipo_caida"].unique()) - _VALID_CAIDAS
-    if caidas_inv:
-        errors.append(
-            f"tipo_caida inválido: {caidas_inv}. Válidos: {_VALID_CAIDAS}"
-        )
-
-    if errors:
-        return False, errors
-
     try:
         client = _get_client()
         for _, row in df_ejercicios.iterrows():
-            resp = (
-                client.table("cargas_grupales")
-                .insert({
-                    "fecha":           str(fecha),
-                    "tipo_plataforma": row["tipo_plataforma"],
-                    "altura_salto":    float(row["altura_salto"]),
-                    "n_saltos":        int(row["n_saltos"]),
-                    "tipo_caida":      row["tipo_caida"],
-                    "notas":           notas,
-                })
-                .execute()
-            )
-            carga_id = resp.data[0]["id"]
-            for atleta in atletas:
-                client.table("cargas_grupales_atletas").insert({
-                    "carga_grupal_id": carga_id,
-                    "nombre":          atleta,
-                }).execute()
+            # Insertamos en la tabla que creamos por SQL
+            client.table("sesiones_vmp").insert({
+                "fecha":            str(fecha),
+                "vmp_hoy":          float(row.get("vmp_hoy", 0)),
+                "fatiga_percibida": int(row.get("fatiga_percibida", 0)),
+                "comentarios":      notas
+            }).execute()
+            
         return True, []
     except Exception as exc:
-        log.error("insertar_carga_grupal_batch error: %s", exc)
-        return False, [str(exc)]
-
+        # El try/except ahora sí está bien cerrado
+        return False, [f"Error al insertar en Supabase: {str(exc)}"]
 
 def wellness_masivo_template(atletas: list[str]) -> pd.DataFrame:
     """

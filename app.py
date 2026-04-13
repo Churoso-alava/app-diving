@@ -8,6 +8,14 @@ Security: MAX_IMPORT_ROWS referenciado desde db (única fuente de verdad)
 """
 from __future__ import annotations
 import pandas as pd
+import logging
+from datetime import date
+import plotly.graph_objects as go
+
+# Importar db antes que streamlit para que los tests puedan importar sin UI
+import db
+
+log = logging.getLogger(__name__)
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = (
@@ -17,18 +25,6 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         .str.replace(" ", "_")
     )
     return df
-
-
-import logging
-from datetime import date
-
-import pandas as pd
-import plotly.graph_objects as go
-
-# Importar db antes que streamlit para que los tests puedan importar sin UI
-import db
-
-log = logging.getLogger(__name__)
 
 # ── Imports condicionales (Streamlit + Fuzzy) ─────────────────────────────
 try:
@@ -180,28 +176,28 @@ def calcular_historial_batch_cached(
     atletas: tuple[str, ...],
     ventana_meso: int,
 ) -> dict[str, pd.DataFrame]:
-    """
-    Calcula historial de fatiga por atleta (últimas 12 sesiones).
-    O(N) cacheado — no usar pipeline_historial directo.
-    """
     result: dict[str, pd.DataFrame] = {}
     for atleta in atletas:
-        df_ath = df_raw[df_raw["Nombre"] == atleta].copy()
+        # CORREGIDO: "Nombre" -> "nombre" y "Fecha" -> "fecha"
+        df_ath = df_raw[df_raw["nombre"] == atleta].copy()
         if df_ath.empty:
             continue
-        df_ath = df_ath.sort_values("Fecha").tail(12).reset_index(drop=True)
-        # Calcular índice de fatiga simplificado (en prod: via función PG)
-        if "vmp_hoy" in df_ath.columns and "VMP_Ref" in df_ath.columns:
-            df_ath["delta_pct"] = ((df_ath["vmp_hoy"] - df_ath["VMP_Ref"])
-                                   / df_ath["VMP_Ref"].replace(0, float("nan")) * 100)
+        df_ath = df_ath.sort_values("fecha").tail(12).reset_index(drop=True)
+        
+        # CORREGIDO: "VMP_Ref" -> "vmp_ref"
+        if "vmp_hoy" in df_ath.columns and "vmp_ref" in df_ath.columns:
+            df_ath["delta_pct"] = ((df_ath["vmp_hoy"] - df_ath["vmp_ref"])
+                                   / df_ath["vmp_ref"].replace(0, float("nan")) * 100)
             df_ath["fatiga"] = (100 - df_ath["delta_pct"].clip(-30, 30)
                                 .apply(lambda x: (x + 30) / 60 * 100)).clip(0, 100)
         else:
             df_ath["fatiga"] = 50.0
-        df_ath["fecha"] = df_ath["Fecha"].astype(str)
+            
+        df_ath["fecha_str"] = df_ath["fecha"].astype(str)
+        # Aseguramos que la columna se llame 'fecha' para el gráfico
+        df_ath = df_ath.rename(columns={"fecha_str": "fecha"}) 
         result[atleta] = df_ath[["fecha", "fatiga"]]
     return result
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UI — PESTAÑAS PRINCIPALES
@@ -236,7 +232,7 @@ def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
             )
             if file_imp is not None:
                 df_imp = pd.read_csv(file_imp)
-                df_imp =normalize_columns(df_imp)
+                df_imp = normalize_columns(df_imp)
 
                 # ── Guard V-DOS UI ────────────────────────────────────────────
                 if len(df_imp) > db.MAX_IMPORT_ROWS:
@@ -482,6 +478,7 @@ def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
             st.metric("Total de saltos en la sesión", total_saltos)
 
             if st.button("💾 Guardar Carga Grupal", type="primary", key="btn_carga_grupal"):
+                df_ejercicios_editado.columns = [col.lower() for col in df_ejercicios_editado.columns]
                 ok, errors = db.insertar_carga_grupal_batch(
                     fecha=str(fecha_carga),
                     df_ejercicios=df_ejercicios_editado,
@@ -489,13 +486,10 @@ def tab_ingreso(atletas_lista: list[str], df_raw: pd.DataFrame):
                     notas=notas_carga,
                 )
                 if ok:
-                    st.success(
-                        f"✅ Carga grupal guardada para {len(atletas_participantes)} atletas "
-                        f"({total_saltos} saltos totales)."
-                    )
+                    st.success("✅ Carga grupal guardada.")
                     st.cache_data.clear()
                 else:
-                    st.error("❌ Errores al guardar:\n" + "\n".join(errors))
+                    st.error("❌ Errores:\n" + "\n".join(errors))
         else:
             st.info("Agrega al menos un ejercicio y selecciona atletas para guardar la carga.")
 
@@ -520,21 +514,27 @@ def tab_dashboard(
 
     # ── [A1] Selector de atleta ───────────────────────────────────────────────
     sel = st.selectbox("Atleta", atletas, key="dash_atleta_sel")
-    df_sel = df_raw[df_raw["Nombre"] == sel].copy()
+    
+    # ¡AQUÍ ESTÁ EL PRIMER CAMBIO! "Nombre" a "nombre"
+    df_sel = df_raw[df_raw["nombre"] == sel].copy()
 
     if df_sel.empty:
         st.warning(f"Sin sesiones registradas para {sel}.")
         return
 
     # ── [A2] KPIs principales ─────────────────────────────────────────────────
-    row = df_sel.sort_values("Fecha").iloc[-1]
+    
+    # ¡AQUÍ ESTÁ EL SEGUNDO CAMBIO! "Fecha" a "fecha"
+    row = df_sel.sort_values("fecha").iloc[-1]
     indice_fatiga = float(row.get("indice_fatiga", 50.0))
 
     col_k1, col_k2, col_k3, col_k4 = st.columns(4)
     col_k1.metric("VMP Hoy",         f"{row.get('vmp_hoy', 0):.3f} m/s")
     col_k2.metric("Índice Fatiga",   f"{indice_fatiga:.1f}")
     col_k3.metric("Sesiones (30d)",  len(df_sel.tail(30)))
-    col_k4.metric("Última sesión",   str(row.get("Fecha", "—")))
+    
+    # ¡AQUÍ ESTÁ EL TERCER CAMBIO! "Fecha" a "fecha"
+    col_k4.metric("Última sesión",   str(row.get("fecha", "—")))
 
     # ── [A3] Historial individual — barras + tendencia ────────────────────────
     st.markdown("---")
@@ -568,10 +568,10 @@ def tab_dashboard(
 
             import skfuzzy as fuzz  # noqa: F401
             membership_vals = {
-                "Óptimo":  fuzz.interp_membership(u_fat, _fat_v["optimo"].mf,           u_fat),
-                "Alerta":  fuzz.interp_membership(u_fat, _fat_v["alerta_temprana"].mf,  u_fat),
-                "Fatiga":  fuzz.interp_membership(u_fat, _fat_v["fatiga_acumulada"].mf, u_fat),
-                "Crítico": fuzz.interp_membership(u_fat, _fat_v["critico"].mf,          u_fat),
+                "Óptimo":  fuzz.interp_membership(u_fat, _fat_v["optimo"].mf,            u_fat),
+                "Alerta":  fuzz.interp_membership(u_fat, _fat_v["alerta_temprana"].mf,   u_fat),
+                "Fatiga":  fuzz.interp_membership(u_fat, _fat_v["fatiga_acumulada"].mf,  u_fat),
+                "Crítico": fuzz.interp_membership(u_fat, _fat_v["critico"].mf,           u_fat),
             }
             if _CHARTS_AVAILABLE:
                 st.plotly_chart(
