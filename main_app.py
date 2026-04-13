@@ -1,113 +1,120 @@
-import streamlit as st
+"""
+app.py — NMF-Optimizer v4.4
+Entry point Streamlit. Orquesta capas desacopladas:
+  data/db.py            → CRUD puro
+  logic/services.py     → métricas + pipeline Mamdani
+  fuzzy/fuzzy_engine.py → Motor Mamdani v4.1 (28 reglas)
+  components/           → pestañas UI
+  visualization/        → gráficos Plotly
+
+RBAC: panel de membresía solo para rol_usuario == 'analitico'
+Security: MAX_IMPORT_ROWS desde data.db (única fuente de verdad)
+"""
+from __future__ import annotations
+
+import logging
+
 import pandas as pd
-from fuzzy.fuzzy_processor import ejecutar_calculo
-from fuzzy.fuzzy_utils import normalizar_wellness
-from data.supabase_client import obtener_clavadistas, guardar_fatiga, conectar_db
+import streamlit as st
 
-# Importamos TUS gráficas originales
-from visualization.charts import fig_semaforo_historico
+import data.db as db
+from components.tab_ingreso   import render_tab_ingreso
+from components.tab_dashboard import render_tab_dashboard
 
-st.set_page_config(page_title="Dashboard Clavados v4.2", layout="wide")
-st.title("🤸 Sistema de Monitoreo: Clavados v4.2")
+log = logging.getLogger(__name__)
 
-# --- RECUPERACIÓN DE DATOS BASE ---
-# Traemos a los atletas
-lista_atleta = obtener_clavadistas()
-df_atletas = pd.DataFrame(lista_atleta) if lista_atleta else pd.DataFrame()
 
-# --- ESTRUCTURA DE PESTAÑAS (TABS) ---
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard Histórico", "📝 Carga de Datos", "⚙️ Configuración"])
+# ─────────────────────────────────────────────────────────────────────────────
+# MOTOR FUZZY — construido una vez por sesión
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ---------------------------------------------------------
-# PESTAÑA 1: DASHBOARD (AQUÍ USAMOS TU CHARTS.PY ORIGINAL)
-# ---------------------------------------------------------
-# --- DENTRO DE LA PESTAÑA 1: DASHBOARD ---
-with tab1:
-    st.header("📊 Historial de Rendimiento (VMP)")
-    
-    supabase = conectar_db()
-    if supabase:
-        # 1. Traemos los datos de la tabla sesiones_vmp
-        res = supabase.table("sesiones_vmp").select("*").execute()
-        df_vmp = pd.DataFrame(res.data)
-        
-        if not df_vmp.empty:
-            # 2. TRADUCCIÓN DE COLUMNAS PARA TU CHARTS.PY
-            # Convertimos vmp_hoy a numérico por si viene como texto
-            df_vmp["vmp_hoy"] = pd.to_numeric(df_vmp["vmp_hoy"])
-            
-            # Renombramos para que tu charts.py encuentre lo que busca
-            df_hist = df_vmp.rename(columns={
-                "fecha": "fecha",
-                "vmp_hoy": "score",  # Usamos la velocidad como el puntaje a graficar
-                "nombre": "nombre"
-            })
-            
-            # 3. CREACIÓN DE ESTADOS (Basado en la velocidad vmp_hoy)
-            def clasificar_vmp(vmp):
-                if vmp >= 1.50:
-                    return "🟢 ÓPTIMO"
-                elif vmp >= 1.30:
-                    return "🟡 ALERTA"
-                else:
-                    return "🔴 CRÍTICO"
-                
-            df_hist["estado"] = df_hist["score"].apply(clasificar_vmp)
+@st.cache_resource
+def _construir_motor():
+    """Construye el motor Mamdani v4.1 y lo cachea para toda la sesión."""
+    try:
+        from fuzzy.fuzzy_engine import construir_motor_fuzzy
+        _vars, simulador = construir_motor_fuzzy()
+        log.info("Motor fuzzy Mamdani v4.1 construido correctamente.")
+        return simulador
+    except Exception as exc:
+        log.error("Error construyendo motor fuzzy: %s", exc)
+        return None
 
-            # 4. LLAMADA A TUS GRÁFICAS ORIGINALES
-            # Mostramos un selector para filtrar por deportista si quieres ver uno a la vez
-            atleta_sel = st.selectbox("Seleccionar Deportista", df_hist["nombre"].unique())
-            df_filtrado = df_hist[df_hist["nombre"] == atleta_sel]
-            
-            fig = fig_semaforo_historico(df_filtrado, titulo=f"Evolución VMP: {atleta_sel}")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Tabla opcional para ver los datos crudos
-            with st.expander("Ver tabla de datos completa"):
-                st.write(df_filtrado)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATOS — cargados y cacheados con TTL
+# ─────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=30)
+def _cargar_datos() -> tuple[list[str], pd.DataFrame]:
+    """Carga atletas y sesiones desde Supabase (TTL 30 s)."""
+    atletas = db.cargar_atletas() or ["Atleta Demo"]
+    df_raw  = db.cargar_sesiones_raw()
+    return atletas, df_raw
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    st.set_page_config(
+        page_title="NMF-Optimizer v4.4",
+        page_icon="⚡",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    # ── CSS global ─────────────────────────────────────────────────────────────
+    try:
+        from visualization.themes import get_global_css
+        st.markdown(get_global_css(), unsafe_allow_html=True)
+    except ImportError:
+        pass
+
+    st.title("⚡ NMF-Optimizer v4.4 — Monitoreo de Fatiga Neuromuscular")
+
+    # ── Sidebar ────────────────────────────────────────────────────────────────
+    with st.sidebar:
+        st.markdown("### ⚙️ Configuración")
+        ventana_meso = st.slider("Ventana mesociclo (días)", 21, 42, 28, key="ventana_meso")
+        st.markdown("---")
+        st.markdown("### 👤 Rol de usuario")
+        rol = st.radio(
+            "Acceso", ["entrenador", "analitico"], key="rol_selector",
+            help="'analítico' habilita el panel de funciones de membresía fuzzy."
+        )
+        st.session_state["rol_usuario"] = rol
+
+    cfg = {"ventana_meso": ventana_meso}
+
+    # ── Motor fuzzy ────────────────────────────────────────────────────────────
+    simulador = _construir_motor()
+    if simulador is None:
+        st.error("❌ Motor fuzzy no disponible. Verifica la instalación de scikit-fuzzy.")
+
+    # ── Datos ──────────────────────────────────────────────────────────────────
+    atletas, df_raw = _cargar_datos()
+
+    # ── Pestañas ───────────────────────────────────────────────────────────────
+    tab_ing, tab_dash, tab_hist = st.tabs([
+        "➕ Ingreso",
+        "📊 Dashboard",
+        "✏️ Historial / Edición",
+    ])
+
+    with tab_ing:
+        render_tab_ingreso(atletas)
+
+    with tab_dash:
+        if simulador is not None:
+            render_tab_dashboard(atletas, df_raw, simulador, cfg)
         else:
-            st.info("No hay datos en 'sesiones_vmp'.")
-# ---------------------------------------------------------
-# PESTAÑA 2: CARGA DE DATOS
-# ---------------------------------------------------------
-with tab2:
-    st.header("Cargar Nuevo Registro")
-    col_a, col_b = st.columns([1, 1])
-    
-    with col_a:
-        if not df_atletas.empty:
-            # Selector de atleta
-            atleta_form = st.selectbox("Atleta", df_atletas['nombre'], key="form_atleta")
-            # Obtenemos el ID del atleta seleccionado
-            id_form = df_atletas[df_atletas['nombre'] == atleta_form]['id'].values[0]
-            
-            wellness = st.slider("Wellness (1-5)", 1.0, 5.0, 3.0)
-            vmp = st.number_input("Carga VMP", 0, 200, 100)
-            
-            # Cálculo del motor fuzzy
-            w_norm = normalizar_wellness(wellness)
-            resultado_fatiga = ejecutar_calculo(w_norm, vmp)
-            
-            st.metric("Resultado Calculado", f"{resultado_fatiga:.2f}%")
-            
-            if st.button("🚀 Guardar en la Nube"):
-                # Guarda en supabase usando tu función
-                guardar_fatiga(id_form, wellness, vmp, resultado_fatiga)
-                st.success("¡Datos enviados correctamente!")
-                st.rerun() # Recarga para que aparezca en el Dashboard
-        else:
-            st.error("Registra un atleta en Configuración primero.")
+            st.info("Dashboard no disponible sin el motor fuzzy.")
 
-# ---------------------------------------------------------
-# PESTAÑA 3: CONFIGURACIÓN
-# ---------------------------------------------------------
-with tab3:
-    st.header("Gestión del Equipo")
-    nuevo_nombre = st.text_input("Nombre del nuevo clavadista")
-    if st.button("➕ Registrar Atleta") and nuevo_nombre:
-        supabase = conectar_db()
-        # Asegúrate de usar la tabla correcta de la imagen que enviaste antes (atletas o clavadistas)
-        supabase.table("clavadistas").insert({"nombre": nuevo_nombre}).execute()
-        st.success(f"{nuevo_nombre} añadido al equipo.")
-        st.rerun()
-        
+    with tab_hist:
+        st.info("Historial y edición de sesiones — próxima versión.")
+
+
+if __name__ == "__main__":
+    main()

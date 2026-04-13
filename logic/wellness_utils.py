@@ -8,4 +8,3 @@ def calcular_carga_integrada(vmp, wellness_norm):
 
 if __name__ == "__main__":
     print("🛠️ Utilidades listas para el motor.")
-    
