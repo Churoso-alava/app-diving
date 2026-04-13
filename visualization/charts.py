@@ -4,10 +4,9 @@ Funciones Plotly para NMF-Optimizer (tema oscuro)
 """
 
 import plotly.graph_objects as go
-import plotly.express as px
+
 import pandas as pd
 from visualization.themes import COLORS, STATUS_COLOR
-
 
 # ── Constantes de layout compartido ──────────────────────────────────────────
 _DARK_LAYOUT = dict(

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from scipy import stats
-from fuzzy import evaluar_atleta
+from fuzzy_viejo import evaluar_atleta
 
 log = logging.getLogger(__name__)
 

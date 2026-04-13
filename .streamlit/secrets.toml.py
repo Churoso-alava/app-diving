@@ -1,0 +1,3 @@
+[supabase]
+url = "https://hbmoztlcbrfcayoiqmpy.supabase.co"
+key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhibW96dGxjYnJmY2F5b2lxbXB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMzI4ODEsImV4cCI6MjA5MDkwODg4MX0.FOlsrQXdBahHg1DsgvVJz43pDWXzRmXAaetPW_kVlH4"
