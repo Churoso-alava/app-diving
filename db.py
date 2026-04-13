@@ -46,8 +46,8 @@ def _get_client():
     """Retorna cliente Supabase autenticado con service_role (nunca exponer en frontend)."""
     try:
         from supabase import create_client
-        url = os.environ.get("SUPABASE_URL", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhibW96dGxjYnJmY2F5b2lxbXB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMzI4ODEsImV4cCI6MjA5MDkwODg4MX0.FOlsrQXdBahHg1DsgvVJz43pDWXzRmXAaetPW_kVlH4")
-        key = os.environ.get("SUPABASE_SERVICE_KEY", "sb_publishable_ILLEsIUWbMgqrK2-zrmY9Q_jNyGtagk")
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_SERVICE_KEY", "")
         return create_client(url, key)
     except Exception as exc:
         log.error("Supabase client error: %s", exc)
