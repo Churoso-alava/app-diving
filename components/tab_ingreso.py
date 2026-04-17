@@ -287,7 +287,7 @@ def render_tab_ingreso(atletas_lista: list[str]) -> None:
             total_saltos = int(df_ejercicios["n_saltos"].sum())
             st.metric("Total de saltos en la sesión", total_saltos)
 
-            if st.button("💾 Guardar Carga Grupal", type="primary", key="btn_carga_grupal"):
+            if st.button("💾 Guardar Carga Grupal", type="primary", key="btn_guardar_carga"):
                 ok, errors = db.insertar_carga_grupal_batch(
                     fecha=str(fecha_carga),
                     df_ejercicios=df_ejercicios,

@@ -4,12 +4,9 @@ Dashboard de fatiga neuromuscular para un atleta seleccionado.
 Usa logic.services.pipeline_diagnostico + visualization.charts.
 """
 from __future__ import annotations
-
 import pandas as pd
 import streamlit as st
-
-from logic.services import pipeline_diagnostico, calcular_historial_fatiga
-
+from logic.services import pipeline_diagnostico, calcular_historial_fatiga, calcular_metricas 
 
 def _cache_data_ttl(fn, ttl: int = 30):
     """Wrapper condicional para st.cache_data."""
@@ -17,7 +14,6 @@ def _cache_data_ttl(fn, ttl: int = 30):
         return st.cache_data(ttl=ttl)(fn)
     except Exception:
         return fn
-
 
 @_cache_data_ttl
 def _historial_cached(
@@ -36,13 +32,6 @@ def render_tab_dashboard(
 ) -> None:
     """
     Renderiza el dashboard principal.
-
-    Parámetros
-    ----------
-    atletas   : Lista de nombres de atletas activos.
-    df_raw    : DataFrame de sesiones_vmp (snake_case, desde db.cargar_sesiones_raw).
-    simulador : ControlSystemSimulation del motor Mamdani (cacheado en app.py).
-    cfg       : Configuración de la sesión {"ventana_meso": int}.
     """
     if df_raw.empty:
         st.info("Sin sesiones registradas. Usa la pestaña ➕ Ingreso para añadir datos.")

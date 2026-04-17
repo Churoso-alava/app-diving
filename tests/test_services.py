@@ -26,7 +26,14 @@ from datetime import date, timedelta
 
 import pandas as pd
 import numpy as np
-from services import SessionInput, calcular_metricas, detectar_tendencia_mpv
+
+# ── Mock skfuzzy before services import (not available in test env) ────────────
+_skfuzzy = types.ModuleType("skfuzzy")
+_skfuzzy.control = types.ModuleType("skfuzzy.control")
+sys.modules.setdefault("skfuzzy", _skfuzzy)
+sys.modules.setdefault("skfuzzy.control", _skfuzzy.control)
+
+from logic.services import SessionInput, calcular_metricas, detectar_tendencia_mpv
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -84,13 +91,13 @@ class TestSessionInput(unittest.TestCase):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _make_df(n: int, vmp_val: float = 0.5, atleta: str = "Ana") -> pd.DataFrame:
-    """Creates a DataFrame with n sessions spaced 1 day apart."""
+    """Creates a DataFrame with n sessions spaced 1 day apart (snake_case = Supabase format)."""
     today = pd.Timestamp.today().normalize()
     fechas = [today - pd.Timedelta(days=n - 1 - i) for i in range(n)]
     return pd.DataFrame({
-        "Nombre": [atleta] * n,
-        "Fecha": fechas,
-        "VMP_Hoy": [vmp_val] * n,
+        "nombre": [atleta] * n,
+        "fecha": fechas,
+        "vmp_hoy": [vmp_val] * n,
     })
 
 
@@ -162,17 +169,17 @@ class TestCalcularMetricas(unittest.TestCase):
         today = pd.Timestamp.today().normalize()
         # 7 stable sessions, all well in the past (days 30..24)
         base = pd.DataFrame({
-            "Nombre": ["Ana"] * 7,
-            "Fecha": [today - pd.Timedelta(days=30 - i) for i in range(7)],
-            "VMP_Hoy": [0.600] * 7,
+            "nombre": ["Ana"] * 7,
+            "fecha": [today - pd.Timedelta(days=30 - i) for i in range(7)],
+            "vmp_hoy": [0.600] * 7,
         })
         # 3 strictly decreasing sessions on new dates (days 3, 2, 1, 0)
         decr = pd.DataFrame({
-            "Nombre": ["Ana"] * 3,
-            "Fecha": [today - pd.Timedelta(days=2),
+            "nombre": ["Ana"] * 3,
+            "fecha": [today - pd.Timedelta(days=2),
                       today - pd.Timedelta(days=1),
                       today],
-            "VMP_Hoy": [0.590, 0.580, 0.570],
+            "vmp_hoy": [0.590, 0.580, 0.570],
         })
         df = pd.concat([base, decr], ignore_index=True)
         m = calcular_metricas(df, "Ana")
@@ -202,10 +209,11 @@ class TestDetectarTendenciaMpv(unittest.TestCase):
     def _df(self, vmps):
         today = pd.Timestamp.today().normalize()
         return pd.DataFrame({
-            "Nombre": ["Ana"] * len(vmps),
-            "Fecha": [today - pd.Timedelta(days=len(vmps)-1-i) for i in range(len(vmps))],
-            "VMP_Hoy": vmps,
+            "nombre": ["Ana"] * len(vmps),
+            "fecha": [today - pd.Timedelta(days=len(vmps)-1-i) for i in range(len(vmps))],
+            "vmp_hoy": vmps,
         })
+
 
     def test_strictly_decreasing_returns_true(self):
         df = self._df([0.6, 0.5, 0.4])

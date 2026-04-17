@@ -21,6 +21,7 @@ PINNED_DEPS = {
     "openpyxl":     "3.1.2",
     "networkx":     "3.2.1",
     "plotly":       "5.18.0",
+    "pillow":       "10.3.0",
 }
 
 

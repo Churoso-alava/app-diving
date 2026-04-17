@@ -11,18 +11,14 @@ RBAC: panel de membresía solo para rol_usuario == 'analitico'
 Security: MAX_IMPORT_ROWS desde data.db (única fuente de verdad)
 """
 from __future__ import annotations
-
 import logging
-
 import pandas as pd
 import streamlit as st
-
 import data.db as db
 from components.tab_ingreso   import render_tab_ingreso
 from components.tab_dashboard import render_tab_dashboard
 
 log = logging.getLogger(__name__)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MOTOR FUZZY — construido una vez por sesión
@@ -40,7 +36,6 @@ def _construir_motor():
         log.error("Error construyendo motor fuzzy: %s", exc)
         return None
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # DATOS — cargados y cacheados con TTL
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,7 +46,6 @@ def _cargar_datos() -> tuple[list[str], pd.DataFrame]:
     atletas = db.cargar_atletas() or ["Atleta Demo"]
     df_raw  = db.cargar_sesiones_raw()
     return atletas, df_raw
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN
@@ -95,7 +89,8 @@ def main() -> None:
 
     # ── Datos ──────────────────────────────────────────────────────────────────
     atletas, df_raw = _cargar_datos()
-
+    
+    st.error(f"🚨 DEBUG: Se encontraron {len(df_raw)} registros en la base de datos.")
     # ── Pestañas ───────────────────────────────────────────────────────────────
     tab_ing, tab_dash, tab_hist = st.tabs([
         "➕ Ingreso",
@@ -114,7 +109,6 @@ def main() -> None:
 
     with tab_hist:
         st.info("Historial y edición de sesiones — próxima versión.")
-
 
 if __name__ == "__main__":
     main()

@@ -5,11 +5,12 @@ Clark-Wilson: CDIs modificados solo vía funciones SECURITY DEFINER en PostgreSQ
 SQL-First: lógica de negocio vive en logic/services.py, no aquí.
 """
 from __future__ import annotations
-
 import logging
 import os
 from datetime import date
 import pandas as pd
+import streamlit as st
+from supabase import create_client
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +55,13 @@ def _get_client():
         log.error("Error de conexión: %s", e)
         return None
 
-
+@st.cache_data
+def get_divers():
+    client = _get_client()
+    # Ejecutar la consulta y extraer 'data'
+    res = client.table("divers").select("*").execute()
+    return pd.DataFrame(res.data)
+    exit
 # ─────────────────────────────────────────────────────────────────────────────
 # LECTURA — SELECT
 # ─────────────────────────────────────────────────────────────────────────────
@@ -70,26 +77,29 @@ def cargar_atletas() -> list[str]:
 
 
 def cargar_sesiones_raw() -> pd.DataFrame:
-    """
-    Retorna DataFrame con TODAS las sesiones VMP ordenadas por fecha ASC.
-
-    Columnas garantizadas (snake_case): nombre, fecha, vmp_hoy, vmp_ref, notas, created_at.
-    Devuelve DataFrame vacío si hay error de red.
-    """
     try:
+        # 1. Asegúrate de que el nombre de la tabla sea exacto en Supabase
         resp = _get_client().table("sesiones_vmp").select("*").order("fecha").execute()
         df = pd.DataFrame(resp.data or [])
+        
         if df.empty:
+            log.warning("La tabla 'sesiones_vmp' respondió con datos vacíos.")
             return df
-        # Coerción de tipos mínima — sin transformaciones de negocio
+
+        # 2. Normalizar nombres de columnas a minúsculas para evitar el KeyError
+        df.columns = [c.lower() for c in df.columns]
+
+        # 3. Ahora el acceso es seguro
         df["fecha"]   = pd.to_datetime(df["fecha"], errors="coerce").dt.date
         df["vmp_hoy"] = pd.to_numeric(df["vmp_hoy"], errors="coerce")
-        df["vmp_ref"] = pd.to_numeric(df.get("vmp_ref"), errors="coerce")
+        # Usamos .get() por si vmp_ref no existe
+        df["vmp_ref"] = pd.to_numeric(df.get("vmp_ref"), errors="coerce") 
+        
         return df
     except Exception as exc:
-        log.error("cargar_sesiones_raw: %s", exc)
+        # Si ves 0 registros, revisa los logs de tu terminal, aquí saldrá el error real
+        log.error("cargar_sesiones_raw falló: %s", exc)
         return pd.DataFrame()
-
 
 def cargar_wellness_atleta(nombre: str) -> pd.DataFrame:
     """Retorna registros Hooper de un atleta, ordenados por fecha DESC."""

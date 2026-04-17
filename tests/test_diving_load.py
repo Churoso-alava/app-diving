@@ -2,10 +2,9 @@
 TDD — RED phase: diving_load.py unit tests.
 Run: python3 -m unittest tests/test_diving_load.py -v
 """
-import sys, os
-sys.path.insert(0, "/mnt/user-data/uploads")
+import sys
 import unittest
-from diving_load import (
+from logic.biomechanics import (
     k_alt, k_dd, k_tipo, k_angulo,
     carga_bruta_sesion, normalizar_carga,
     calcular_wellness, carga_integrada,
