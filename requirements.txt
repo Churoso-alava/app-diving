@@ -1,3 +1,6 @@
+# requirements.txt — versiones pinneadas (V-DEPS hardening).
+# Actualizar SOLO con revisión explícita + actualizar PINNED_DEPS en test_security_hardening.py.
+# Auditado: 2026-04-13
 streamlit==1.38.0
 supabase==2.4.6
 scikit-fuzzy==0.4.2

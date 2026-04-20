@@ -46,6 +46,7 @@ from logic.services import (
 )
 from visualization.themes import get_global_css, COLORS
 from components.tab_lesiones import render_tab_lesiones # Added for Injury Tracking tab
+from components.tab_historial import tab_historial # Import the new tab function
 log = logging.getLogger(__name__)
 
 
@@ -490,7 +491,7 @@ def main() -> None:
     with tab_les:
         render_tab_lesiones()
     with tab_hist:
-        st.info("Historial y edición de sesiones - próxima versión.")
+        tab_historial() # Call the new tab's function
 
 
 if __name__ == "__main__":
