@@ -30,12 +30,12 @@ import db
 from logic.biomechanics import carga_bruta_sesion          # noqa: F401
 from fuzzy.diving_rules import conjunto_dominante_ci        # noqa: F401
 from visualization.charts import (
-    fig_membership_fuzzy,
-    fig_semaforo_historico,
-    fig_semaforo_barras,
-    fig_vmp_tendencia,
-    fig_historial_barras_atleta,
-)
+        fig_membership_fuzzy,
+        fig_semaforo_historico,
+        fig_semaforo_barras,
+        fig_vmp_tendencia,
+        fig_historial_barras_atleta,
+    )
 
 # ── Lógica de negocio ────────────────────────────────────────────────────────
 from fuzzy.fuzzy_engine import construir_motor_fuzzy
@@ -45,7 +45,7 @@ from logic.services import (
     calcular_historial_fatiga,
 )
 from visualization.themes import get_global_css, COLORS
-
+from components.tab_lesiones import render_tab_lesiones # Added for Injury Tracking tab
 log = logging.getLogger(__name__)
 
 
@@ -477,15 +477,18 @@ def main() -> None:
     cfg = {"ventana_meso": ventana_meso}
     atletas, df_raw = _cargar_datos()
 
-    tab_ing, tab_dash, tab_hist = st.tabs([
+    tab_ing, tab_dash, tab_les, tab_hist = st.tabs([
         "Ingreso",
         "Dashboard",
+        "Lesiones",
         "Historial / Edicion",
     ])
     with tab_ing:
         tab_ingreso(atletas, df_raw)
     with tab_dash:
         tab_dashboard(atletas, df_raw, cfg)
+    with tab_les:
+        render_tab_lesiones()
     with tab_hist:
         st.info("Historial y edición de sesiones - próxima versión.")
 
