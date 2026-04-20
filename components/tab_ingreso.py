@@ -348,24 +348,31 @@ if st.button("💾 Guardar VMP", type="primary", key="btn_vmp"):
             key="carga_atletas_sel",
         )
 
-        if not df_ejercicios.empty and atletas_participantes:
-            total_saltos = int(df_ejercicios["n_saltos"].sum())
-            st.metric("Total de saltos en la sesión", total_saltos)
+        with st.expander("📥 Subir Mesociclo CSV"):
+            st.markdown("#### Carga masiva de mesociclo")
+            st.caption("Sube un archivo CSV con las sesiones de entrenamiento de un mesociclo.")
 
-            if st.button("💾 Guardar Carga Grupal", type="primary", key="btn_guardar_carga"):
-                ok, errors = db.insertar_carga_grupal_batch(
-                    fecha=str(fecha_carga),
-                    df_ejercicios=df_ejercicios,
-                    atletas=atletas_participantes,
-                    notas=notas_carga,
-                )
-                if ok:
-                    st.success(
-                        f"✅ Carga grupal guardada para {len(atletas_participantes)} atletas "
-                        f"({total_saltos} saltos)."
-                    )
-                    st.cache_data.clear()
-                else:
-                    st.error("❌ Errores:\n" + "\n".join(errors))
+            file_mesociclo = st.file_uploader(
+                "Selecciona el archivo CSV del mesociclo", type=["csv"], key="mesociclo_csv_uploader"
+            )
+
+            if file_mesociclo is not None:
+                # Placeholder for CSV parsing and db.importar_mesociclo_batch call
+                st.info("CSV cargado. Procesando...")
+                # TODO: Add actual logic to read CSV and call db.importar_mesociclo_batch
+                st.warning("La funcionalidad de carga de mesociclos aún no está implementada.")
+                # Example structure:
+                # try:
+                #     df_mesociclo = pd.read_csv(file_mesociclo)
+                #     # df_mesociclo = _normalize_columns(df_mesociclo) # May need normalization
+                #     ins, omi, errs = db.importar_mesociclo_batch(df_mesociclo)
+                #     if errs:
+                #         st.error("\n".join(errs))
+                #     else:
+                #         st.success(f"✅ Mesociclo importado: {ins} sesiones, {omi} omitidas.")
+                #         st.cache_data.clear()
+                # except Exception as e:
+                #     st.error(f"Error al procesar el archivo: {e}")
+
         else:
             st.info("Agrega al menos un ejercicio y selecciona atletas para guardar.")
