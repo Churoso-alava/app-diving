@@ -15,7 +15,10 @@ import plotly.graph_objects as go
 
 from visualization.themes import COLORS, STATUS_COLOR
 
-# ── Layout oscuro compartido ──────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Layout oscuro compartido
+# ─────────────────────────────────────────────────────────────────────────────
+
 _DARK_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor=COLORS["card_bg"],
@@ -312,4 +315,95 @@ def fig_membership_fuzzy(x_vals, membership_vals: dict) -> go.Figure:
     )
     fig.update_xaxes(title="Índice de Fatiga")
     fig.update_yaxes(title="Grado de Membresía", range=[0, 1.05])
+    return fig
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VMP RATIO THRESHOLDS — VMP, Ratio y umbrales de seguridad para atleta
+# ─────────────────────────────────────────────────────────────────────────────
+
+def fig_vmp_ratio_thresholds(df: pd.DataFrame, nombre_atleta: str) -> go.Figure:
+    """
+    Gráfico de líneas para VMP, Ratio y sus umbrales de seguridad.
+    df columnas esperadas:
+      - fecha (str o datetime): Fecha de la medición.
+      - vmp (float): Valor de VMP.
+      - ratio (float): Valor del Ratio (e.g., VMP/MMC28).
+      - threshold_low (float): Umbral inferior de seguridad para el Ratio.
+      - threshold_high (float): Umbral superior de seguridad para el Ratio.
+    """
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title=f"Sin datos para {nombre_atleta}")
+        return fig
+
+    # Asegurar que las fechas estén en formato correcto para Plotly
+    df['fecha'] = pd.to_datetime(df['fecha']).dt.strftime('%Y-%m-%d')
+
+    fig = go.Figure()
+
+    # Trace para VMP
+    fig.add_trace(go.Scatter(
+        x=df["fecha"], y=df["vmp"], mode="lines+markers",
+        name="VMP CMJ (m/s)",
+        line=dict(color=COLORS["vmp_line"], width=2),
+        marker=dict(color=COLORS["vmp_line"], size=5),
+        yaxis="y1" # Asignar al eje Y primario
+    ))
+
+    # Trace para Ratio
+    fig.add_trace(go.Scatter(
+        x=df["fecha"], y=df["ratio"], mode="lines+markers",
+        name="Ratio (VMP/MMC28)",
+        line=dict(color=COLORS["acute_line"], width=2, dash="dash"), # Usando un color y estilo diferente
+        marker=dict(color=COLORS["acute_line"], size=5),
+        yaxis="y2" # Asignar al eje Y secundario
+    ))
+
+    # Trace para umbral inferior del Ratio
+    fig.add_trace(go.Scatter(
+        x=df["fecha"], y=df["threshold_low"], mode="lines",
+        name="Umbral Ratio Inferior",
+        line=dict(color=COLORS["alert_dash"], width=1, dash="dash"),
+        fill='tonexty', # Rellenar hasta el siguiente trace (umbral superior)
+        fillcolor='rgba(249,115,22,0.08)', # Color de relleno para el área de alerta del ratio
+        yaxis="y2"
+    ))
+
+    # Trace para umbral superior del Ratio
+    fig.add_trace(go.Scatter(
+        x=df["fecha"], y=df["threshold_high"], mode="lines",
+        name="Umbral Ratio Superior",
+        line=dict(color=COLORS["critical_dash"], width=1, dash="dash"),
+        fill='tonexty', # Rellenar hasta el trace anterior (umbral inferior) o hasta cero si no hay
+        fillcolor='rgba(239,68,68,0.08)', # Color de relleno para el área de alerta del ratio
+        yaxis="y2"
+    ))
+
+    fig.update_layout(**_DARK_LAYOUT)
+    fig.update_layout(
+        title=dict(
+            text=f"VMP CMJ y Ratio — {nombre_atleta}",
+            font=dict(size=13, color=COLORS["text_primary"]), x=0.01,
+        ),
+        margin=dict(l=40, r=20, t=52, b=32),
+        # Configuración de ejes Y
+        yaxis=dict(
+            title="VMP CMJ (m/s)",
+            titlefont=dict(color=COLORS["vmp_line"]),
+            tickfont=dict(color=COLORS["vmp_line"]),
+            color=COLORS["vmp_line"],
+            rangemode='tozero' # Asegura que el eje Y empiece en 0
+        ),
+        yaxis2=dict(
+            title="Ratio (VMP/MMC28)",
+            titlefont=dict(color=COLORS["acute_line"]),
+            tickfont=dict(color=COLORS["acute_line"]),
+            color=COLORS["acute_line"],
+            overlaying="y", # Superponer sobre el eje y1
+            side="right", # Colocar en el lado derecho
+            rangemode='tozero'
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
     return fig
