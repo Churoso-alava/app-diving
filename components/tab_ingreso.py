@@ -69,28 +69,93 @@ def render_tab_ingreso(atletas_lista: list[str]) -> None:
                             st.cache_data.clear()
                             st.rerun()
 
-        st.markdown("---")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            atleta_sel = st.selectbox("Atleta", atletas_lista, key="vmp_atleta")
-        with col_b:
-            fecha_vmp = st.date_input(
-                "Fecha", value=date.today(), max_value=date.today(), key="vmp_fecha"
-            )
-        vmp_hoy_val = st.number_input(
-            "VMP hoy (m/s)", min_value=0.10, max_value=2.50,
-            value=0.80, step=0.01, format="%.3f", key="vmp_hoy_input"
-        )
-        notas_vmp = st.text_input("Notas (opcional)", key="vmp_notas")
+        # New section for Manual Masivo
+with st.expander("👥 Manual Masivo"):
+    st.markdown("#### Registro manual de sesiones VMP")
 
-        if st.button("💾 Guardar VMP", type="primary", key="btn_vmp"):
-            ok, msg = db.insertar_sesion(atleta_sel, fecha_vmp, vmp_hoy_val, notas=notas_vmp)
-            if ok:
-                st.success(msg)
+    # Use the provided atletas_lista instead of calling db.cargar_atletas() again
+    if not atletas_lista: # Check if the list passed to the function is empty
+        st.warning("No hay atletas registrados para ingresar sesiones.")
+    else:
+        df_template = pd.DataFrame({
+            "Atleta": atletas_lista,
+            "Fecha": [date.today()] * len(atletas_lista), 
+            "VMP (m/s)": [0.80] * len(atletas_lista),    
+            "Notas": [""] * len(atletas_lista)         
+        })
+
+        df_edited = st.data_editor(
+            df_template,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic", 
+            column_config={
+                "Atleta": st.column_config.TextColumn("Atleta", disabled=True),
+                "Fecha": st.column_config.DateColumn("Fecha", min_value=date(2020, 1, 1), max_value=date.today()),
+                "VMP (m/s)": st.column_config.NumberColumn(
+                    "VMP (m/s)", min_value=0.10, max_value=2.50, step=0.01, format="%.3f"
+                ),
+                "Notas": st.column_config.TextColumn("Notas (opcional)"),
+            },
+            key="vmp_masivo_editor",
+        )
+
+        if st.button("💾 Guardar Sesiones VMP Masivo", type="primary", key="btn_vmp_masivo"):
+            insertados_count = 0
+            errores_masivo = []
+
+            for _, row in df_edited.iterrows():
+                atleta = row["Atleta"]
+                fecha = row["Fecha"]
+                vmp_val = row["VMP (m/s)"]
+                notas_val = row["Notas"]
+
+                # Basic validation: Ensure athlete name, date, and vmp are valid
+                if not atleta or not fecha or vmp_val is None:
+                    errores_masivo.append(f"Fila inválida para {atleta or 'sin atleta'}.")
+                    continue
+
+                # Call db.insertar_sesion for each valid row
+                ok, msg = db.insertar_sesion(atleta, fecha, vmp_val, notas=notas_val)
+                if ok:
+                    insertados_count += 1
+                else:
+                    errores_masivo.append(f"{atleta}: {msg}")
+            
+            # Provide feedback
+            if errores_masivo:
+                st.warning(f"⚠️ Se encontraron {len(errores_masivo)} errores:\n" + "\n".join(errores_masivo))
+            if insertados_count > 0:
+                st.success(f"✅ Sesiones VMP guardadas para {insertados_count} atletas.")
                 st.cache_data.clear()
                 st.rerun()
-            else:
-                st.error(msg)
+            elif not errores_masivo:
+                 st.info("No se registraron nuevas sesiones VMP.")
+
+# Original individual entry form starts here
+st.markdown("---")
+col_a, col_b = st.columns(2)
+with col_a:
+    atleta_sel = st.selectbox("Atleta", atletas_lista, key="vmp_atleta")
+with col_b:
+    fecha_vmp = st.date_input(
+        "Fecha", value=date.today(), max_value=date.today(), key="vmp_fecha"
+    )
+vmp_hoy_val = st.number_input(
+    "VMP hoy (m/s)", min_value=0.10, max_value=2.50,
+    value=0.80, step=0.01, format="%.3f", key="vmp_hoy_input"
+)
+notas_vmp = st.text_input("Notas (opcional)", key="vmp_notas")
+
+if st.button("💾 Guardar VMP", type="primary", key="btn_vmp"):
+    ok, msg = db.insertar_sesion(atleta_sel, fecha_vmp, vmp_hoy_val, notas=notas_vmp)
+    if ok:
+        st.success(msg)
+        st.cache_data.clear()
+        st.rerun()
+    else:
+        st.error(msg)
+
 
     # =========================================================================
     # WELLNESS — Individual + Masivo
