@@ -171,6 +171,54 @@ def render_tab_dashboard(
         st.warning(f"No se pudo renderizar el gráfico VMP/Ratio: {exc}")
     # --- END NEW SECTION ---
 
-    # ── Panel de membresía fuzzy (solo rol analítico) ─────────────────────────
+    # --- NEW SECTION: Vista Grupal ---
+    st.markdown("---")
+    st.markdown("### 👥 Vista Grupal")
+
+    # Get data for all athletes
+    all_athlete_metrics = []
+    ventana = cfg.get("ventana_meso", 28)
+
+    # Filter out athletes with no data to avoid errors in pipeline_diagnostico
+    athletes_with_data = df_raw['nombre'].unique()
+
+    # Use a try-except block for robustness in data fetching
+    try:
+        for athlete_name in atletas:
+            if athlete_name in athletes_with_data:
+                result = pipeline_diagnostico(athlete_name, df_raw, simulador, ventana)
+                if result: # Ensure result is not None (e.g., if not enough data)
+                    all_athlete_metrics.append({
+                        "Atleta": athlete_name,
+                        "Índice de Fatiga": result.get("indice_fatiga", "N/A"),
+                        "Estado": result.get("estado", "N/A"),
+                        "DQI": result.get("dqi", "N/A"),
+                        "Δ% vs MMC28": f"{result.get('delta_pct', 0):.1f}%" if isinstance(result.get('delta_pct'), (int, float)) else "N/A",
+                        "Recomendación": result.get("accion", "N/A"),
+                    })
+
+        if all_athlete_metrics:
+            df_group = pd.DataFrame(all_athlete_metrics)
+            # Define the desired column order
+            column_order = ['Atleta', 'Índice de Fatiga', 'Estado', 'DQI', 'Δ% vs MMC28', 'Recomendación']
+
+            # Reorder DataFrame columns to match the desired order
+            # Ensure all columns in column_order exist in df_group before reordering
+            existing_columns = [col for col in column_order if col in df_group.columns]
+            df_group = df_group[existing_columns]
+
+            st.dataframe(
+                df_group,
+                use_container_width=True,
+                hide_index=True # Hide the default DataFrame index
+            )
+        else:
+            st.info("No hay datos suficientes para mostrar la vista grupal.")
+
+    except Exception as e:
+        st.error(f"Error al cargar la vista grupal: {e}")
+    # --- END NEW SECTION ---
+
+    # --- Panel de membresía fuzzy (solo rol analítico) ─────────────────────────
     if st.session_state.get("rol_usuario") == "analitico":
         _render_membership_panel(resultado, simulador)
