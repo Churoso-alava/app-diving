@@ -77,13 +77,19 @@ def cargar_atletas() -> list[str]:
 
 def cargar_sesiones_raw() -> pd.DataFrame:
     try:
+        client = _get_client() # Ensure client is obtained
+        if client is None: # Check if client creation failed
+            log.error("Supabase client not available.")
+            return pd.DataFrame()
+
         # 1. Asegúrate de que el nombre de la tabla sea exacto en Supabase
-        resp = _get_client().table("sesiones_vmp").select("*").order("fecha").execute()
-        df = pd.DataFrame(resp.data or [])
-        
-        if df.empty:
-            log.warning("La tabla 'sesiones_vmp' respondió con datos vacíos.")
-            return df
+        resp = client.table("sesiones_vmp").select("*").order("fecha").execute()
+
+        if resp.data is None or not resp.data: # Check for None or empty list
+            log.warning("La tabla 'sesiones_vmp' respondió con datos vacíos. Response: %s", resp) # Log full response for debugging
+            return pd.DataFrame()
+
+        df = pd.DataFrame(resp.data)
 
         # 2. Normalizar nombres de columnas a minúsculas para evitar el KeyError
         df.columns = [c.lower() for c in df.columns]
@@ -92,14 +98,13 @@ def cargar_sesiones_raw() -> pd.DataFrame:
         df["fecha"]   = pd.to_datetime(df["fecha"], errors="coerce").dt.date
         df["vmp_hoy"] = pd.to_numeric(df["vmp_hoy"], errors="coerce")
         # Usamos .get() por si vmp_ref no existe
-        df["vmp_ref"] = pd.to_numeric(df.get("vmp_ref"), errors="coerce") 
-        
+        df["vmp_ref"] = pd.to_numeric(df.get("vmp_ref"), errors="coerce")
+
         return df
     except Exception as exc:
-        # Si ves 0 registros, revisa los logs de tu terminal, aquí saldrá el error real
-        log.error("cargar_sesiones_raw falló: %s", exc)
+        # Log the full exception for better diagnosis
+        log.error("cargar_sesiones_raw falló: %s", exc, exc_info=True) # exc_info=True for traceback
         return pd.DataFrame()
-
 def cargar_wellness_atleta(nombre: str) -> pd.DataFrame:
     """Retorna registros Hooper de un atleta, ordenados por fecha DESC."""
     try:
