@@ -5,22 +5,6 @@ Run: python3 -m unittest tests/test_services.py -v
 """
 import sys
 import types
-
-# ── Mock skfuzzy before services import (not available in test env) ────────────
-_skfuzzy = types.ModuleType("skfuzzy")
-_skfuzzy.control = types.ModuleType("skfuzzy.control")
-sys.modules.setdefault("skfuzzy", _skfuzzy)
-sys.modules.setdefault("skfuzzy.control", _skfuzzy.control)
-
-# Mock evaluar_atleta so services imports cleanly
-_fuzzy_mod = types.ModuleType("fuzzy")
-_fuzzy_mod.evaluar_atleta = lambda sim, m: {**m, "indice_fatiga": 50.0, "estado": "🟡 ALERTA TEMPRANA",
-                                            "color": "#ca8a04", "accion": "—", "accion_primaria": "—",
-                                            "advertencias": [], "contexto_cientifico": "", "nota_swc": ""}
-sys.modules["fuzzy"] = _fuzzy_mod
-
-sys.path.insert(0, "/mnt/user-data/uploads")
-
 import unittest
 from datetime import date, timedelta
 

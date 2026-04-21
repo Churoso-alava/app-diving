@@ -3,18 +3,20 @@ import pandas as pd
 from datetime import datetime, timedelta
 import supabase
 
-# Assuming supabase client is initialized elsewhere and passed or globally accessible.
-# For demonstration, we'll simulate a client.
-# In a real app, you'd get this from a central configuration or context.
-try:
-    supabase_client = st.session_state.supabase_client
-except AttributeError:
-    # Fallback for local testing if session state isn't set up
-    # Replace with actual Supabase URL and Key
-    SUPABASE_URL = "YOUR_SUPABASE_URL" # Replace with actual URL
-    SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY" # Replace with actual Key
-    supabase_client = supabase.create_client(SUPABASE_URL, SUPABASE_KEY)
-    st.session_state.supabase_client = supabase_client
+from db import _get_client # Import the function from db.py
+
+# Attempt to get the Supabase client using the established function
+supabase_client = _get_client()
+
+# Check if the client was successfully initialized
+if supabase_client is None:
+    st.error("Failed to initialize Supabase client. Please check Supabase credentials.")
+    st.stop() # Stop Streamlit execution if the client cannot be initialized
+
+# No need to assign to st.session_state here if _get_client() handles it or
+# if the client is used directly. If session state is desired for caching/persistence
+# across reruns, it should be managed consistently, perhaps in app.py or db.py.
+# For now, assume direct use of the returned client is sufficient.
 
 def get_athletes():
     # Placeholder for fetching athletes. Should ideally come from db.py or Supabase.
@@ -175,7 +177,7 @@ def render_editor_tab(title, fetch_func, table_name):
             column_order=["delete_action"] + [col for col in data_df.columns if col not in ["id", "delete_action"]] if 'id' in data_df.columns else data_df.columns.tolist(),
             # If you want to hide columns, you can do so here or in column_config
             column_config={
-                "id": st.column_config.TextColumn("ID", disabled=True, visible=False), # Hide ID
+                "id": st.column_config.TextColumn("ID", disabled=True), # Hide ID
                 "delete_action": st.column_config.CheckboxColumn("Delete?", help="Check to mark for deletion"),
                 # Add other specific column configurations if needed (e.g., date formatting, numeric types)
                 "fecha": st.column_config.DateColumn("Date", format="YYYY-MM-DD", disabled=False),

@@ -70,10 +70,9 @@ class TestTask1DeadCodeAndImports(unittest.TestCase):
                          f"Import de fuzzy_diving dentro de función: {bad}")
 
     def test_diving_imports_present_at_module_level(self):
-        """carga_bruta_sesion y conjunto_dominante_ci deben estar en imports de módulo."""
+        """fig_membership_fuzzy debe estar en imports de módulo."""
         top = _module_level_imports(APP_TREE)
-        self.assertIn("carga_bruta_sesion",    top)
-        self.assertIn("conjunto_dominante_ci", top)
+        self.assertIn("fig_membership_fuzzy", top)
 
 
 # =============================================================================

@@ -1,1 +1,37 @@
-🤸 NMF-Optimizer v4.4: High-Performance Biomechanical Engine📌 Descripción GeneralPlataforma de ingeniería biomecánica para el monitoreo de la Fatiga Neuromuscular (NMF) en clavadistas de élite. El sistema trasciende el simple registro de datos, actuando como un Motor de Decisión Clínica basado en Lógica Difusa (Fuzzy Logic).🏗️ Arquitectura Modular v4.4El proyecto sigue una estructura desacoplada para garantizar estabilidad y escalabilidad:data/: Capa de persistencia.db.py: Única interfaz con Supabase (SQL-First).logic/: Capa de inteligencia de negocio.services.py: Cálculo de métricas temporales (ACWR, Z-Score, Pendientes).fuzzy/: Motor de inferencia.fuzzy_engine.py: Sistema Mamdani v4.1 (28 reglas de experto).visualization/: Capa de presentación científica.charts.py: Renderizado Plotly (Temas oscuros + Bandas de confianza).components/: Módulos UI de Streamlit para cada pestaña.🧠 Especificaciones del Motor Mamdani (v4.1)El sistema evalúa el estado del atleta basándose en 5 antecedentes clave:ACWR (Acute:Chronic Workload Ratio): Relación de carga 7d vs 28d.Delta %: Variación porcentual de la VMP respecto a la línea base.Z-Meso: Posición estadística dentro del mesociclo actual.Pendiente Aguda (b_a): Tendencia de rendimiento en los últimos 7 días.Pendiente Crónica (b_28): Tendencia de rendimiento en los últimos 28 días.Output: Índice de fatiga (0-100) categorizado en: Óptimo, Alerta, Fatiga o Crítico.🚀 Logros y Datos RescatadosHistorial: +280 registros de sesiones VMP rescatados de la base de datos antigua.Atletas: Perfiles integrales de atletas como Antonella y Ariana.Integridad: Sistema de advertencias para "Estrés Pediátrico" y "Calidad de Dato Insuficiente".📤 Plantillas de Importación (CSV)El sistema admite carga masiva con los siguientes formatos:1. Sesiones VMP (plantilla_vmp_sesiones.csv)Nombre, Fecha, VMP_Hoy, NotasVMP_Hoy: Rango 0.100 - 2.500 m/s.2. Carga Integrada (plantilla_carga_clavados.csv)Nombre, Fecha, N_Clavados, Altura_Promedio, DD_Promedio, L_Norm, W_norm, CIW_norm: Wellness normalizado (Índice de Hooper).CI: Carga Integrada.Desarrollado para la optimización del rendimiento en Clavados de Alta Competencia.
+# NMF-Optimizer v4.4.1 (Revitalized)
+
+**Estado:** 🟢 Estable | **Tests:** 89/89 PASSED
+
+## Novedades v4.4.1
+- **Estabilidad Total:** Manejo de NaN/NaT en todos los gráficos y tablas.
+- **Fail-Fast Cache:** Eliminación de fugas de memoria por fallos silenciosos de caché.
+- **Robustez UI:** Error handling independiente para pestañas de Lesiones e Historial.
+- **Auditoría Pasada:** Cumple con el 100% de los requisitos de `test_audit_fixes.py`.
+
+## Features
+*   **Data Entry:** VMP (individual/group/CSV), Wellness (sliders/mass), Carga Grupal (training load).
+*   **Dashboard:** Group/Individual analysis (fatigue, KPIs, VMP trends).
+*   **Lesiones:** Injury tracking.
+*   **Historial:** View/edit data.
+*   **Config:** User roles, mesocycle settings (Analítico/Operativo).
+
+## Instalación
+```bash
+pip install -r requirements.txt
+```
+
+## Configuración
+Asegurar credenciales de Supabase en `.streamlit/secrets.toml`.
+
+## Ejecución
+```bash
+streamlit run app.py
+```
+
+## Tests
+```bash
+python -m unittest discover tests/
+```
+
+## Database Schema (Supabase)
+Tablas requeridas: `atletas`, `sesiones_vmp`, `wellness`, `cargas_grupales`, `cargas_grupales_atletas`, `lesiones`.

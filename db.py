@@ -61,7 +61,6 @@ def get_divers():
     # Ejecutar la consulta y extraer 'data'
     res = client.table("divers").select("*").execute()
     return pd.DataFrame(res.data)
-    exit
 # ─────────────────────────────────────────────────────────────────────────────
 # LECTURA — SELECT
 # ─────────────────────────────────────────────────────────────────────────────
@@ -89,13 +88,43 @@ def cargar_sesiones_raw() -> pd.DataFrame:
         # 2. Normalizar nombres de columnas a minúsculas para evitar el KeyError
         df.columns = [c.lower() for c in df.columns]
 
-        # 3. Ahora el acceso es seguro
-        df["fecha"]   = pd.to_datetime(df["fecha"], errors="coerce").dt.date
-        df["vmp_hoy"] = pd.to_numeric(df["vmp_hoy"], errors="coerce")
-        # Usamos .get() por si vmp_ref no existe
-        df["vmp_ref"] = pd.to_numeric(df.get("vmp_ref"), errors="coerce") 
+        # Log NaT values after date coercion
+        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.date
+        initial_rows = len(df)
+        if df["fecha"].isnull().any():
+            log.warning("cargar_sesiones_raw: NaT values found in 'fecha' column after coercion.")
         
-        return df
+        df_filtered_fecha = df.dropna(subset=["fecha"])
+        rows_discarded_fecha = initial_rows - len(df_filtered_fecha)
+        if rows_discarded_fecha > 0:
+            log.info(f"cargar_sesiones_raw: Discarded {rows_discarded_fecha} rows due to NaT in 'fecha' column.")
+        
+        df_intermediate = df_filtered_fecha
+
+        # Coerce numeric columns and validate using helper
+        numeric_cols_to_validate = []
+        if "vmp_hoy" in df_intermediate.columns:
+            df_intermediate["vmp_hoy"] = pd.to_numeric(df_intermediate["vmp_hoy"], errors="coerce")
+            if df_intermediate["vmp_hoy"].isnull().any():
+                log.warning("cargar_sesiones_raw: NaN values found in 'vmp_hoy' column after coercion.")
+            numeric_cols_to_validate.append("vmp_hoy")
+            
+        if "vmp_ref" in df_intermediate.columns: # Check if vmp_ref exists before processing
+            df_intermediate["vmp_ref"] = pd.to_numeric(df_intermediate.get("vmp_ref"), errors="coerce")
+            if df_intermediate["vmp_ref"].isnull().any():
+                log.warning("cargar_sesiones_raw: NaN values found in 'vmp_ref' column after coercion.")
+            numeric_cols_to_validate.append("vmp_ref")
+
+        df_final = df_intermediate
+        if numeric_cols_to_validate:
+             df_final = _validar_numericos(df_intermediate, numeric_cols_to_validate)
+
+        # Log total discarded rows across both filters if any rows were discarded
+        total_rows_discarded = initial_rows - len(df_final)
+        if total_rows_discarded > 0:
+            log.info(f"cargar_sesiones_raw: Total rows discarded due to NaT/NaN: {total_rows_discarded}.")
+
+        return df_final
     except Exception as exc:
         # Si ves 0 registros, revisa los logs de tu terminal, aquí saldrá el error real
         log.error("cargar_sesiones_raw falló: %s", exc)
@@ -140,10 +169,26 @@ def cargar_lesiones() -> pd.DataFrame:
 
         if "fecha_inicio" in df.columns:
             df["fecha_inicio"] = pd.to_datetime(df["fecha_inicio"], errors="coerce").dt.date
+            if df["fecha_inicio"].isnull().any():
+                log.warning("cargar_lesiones: NaT values found in 'fecha_inicio' column after coercion.")
         if "fecha_alta" in df.columns:
             df["fecha_alta"] = pd.to_datetime(df["fecha_alta"], errors="coerce").dt.date
+            if df["fecha_alta"].isnull().any():
+                log.warning("cargar_lesiones: NaT values found in 'fecha_alta' column after coercion.")
             
-        return df
+        # Filter out rows with NaT in critical date columns
+        initial_rows_lesiones = len(df)
+        df_filtered = df.copy() # Create a copy to avoid SettingWithCopyWarning
+        if "fecha_inicio" in df_filtered.columns:
+            df_filtered = df_filtered.dropna(subset=["fecha_inicio"])
+        if "fecha_alta" in df_filtered.columns:
+            df_filtered = df_filtered.dropna(subset=["fecha_alta"])
+
+        rows_discarded = initial_rows_lesiones - len(df_filtered)
+        if rows_discarded > 0:
+            log.info(f"cargar_lesiones: Discarded {rows_discarded} rows due to NaT in critical date columns.")
+            
+        return df_filtered
     except Exception as exc:
         log.error("cargar_lesiones: %s", exc)
         return pd.DataFrame()
@@ -446,6 +491,35 @@ def wellness_masivo_template(atletas: list[str]) -> pd.DataFrame:
     })
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPERS UTILITIES
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _validar_numericos(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
+    """
+    Filtra filas de un DataFrame donde las columnas especificadas contengan NaN.
+    Retorna el DataFrame filtrado y registra cuántas filas se eliminaron.
+    Solo considera columnas que existen en el DataFrame.
+    """
+    initial_rows = len(df)
+    existing_columns = [col for col in columnas if col in df.columns]
+
+    if not existing_columns:
+        if columnas:
+            log.warning(f"Filtro _validar_numericos: No specified columns found in DataFrame: {columnas}.")
+        return df # Return original df if no valid columns to filter by
+
+    # Create a boolean mask for rows where all specified existing columns are NOT NaN
+    # .notna() returns True for non-NaN values. .all(axis=1) checks if all are True.
+    mask = df[existing_columns].notna().all(axis=1)
+
+    df_filtered = df.loc[mask] # Apply the mask to the original DataFrame
+
+    rows_discarded = initial_rows - len(df_filtered)
+    if rows_discarded > 0:
+        log.warning(f"Filtro _validar_numericos: Descartadas {rows_discarded} filas con NaN en columnas existentes: {existing_columns}.")
+    return df_filtered
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS UI (solo factories de datos estáticos, sin lógica de negocio)
 # ─────────────────────────────────────────────────────────────────────────────

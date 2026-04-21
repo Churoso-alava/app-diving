@@ -9,11 +9,14 @@ FASE 5 — Auditoría de esquema:
 """
 from __future__ import annotations
 
+import logging
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
 from visualization.themes import COLORS, STATUS_COLOR
+
+log = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Layout oscuro compartido
@@ -53,31 +56,81 @@ def fig_vmp_tendencia(df: pd.DataFrame, nombre_atleta: str, delta_pct: float) ->
     Evolución VMP (vmp_hoy), MMA7 y MMC28 para un atleta.
     df columnas: fecha (str), vmp_hoy, mma7, mmc28.
     """
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title=f"Sin datos para {nombre_atleta}")
+        return fig
+
+    # Validar presencia de columnas requeridas
+    required = ["fecha", "vmp_hoy", "mma7", "mmc28"]
+    if not all(c in df.columns for c in required):
+        log.warning(f"fig_vmp_tendencia: Faltan columnas requeridas {required}")
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title=f"Datos incompletos para {nombre_atleta}")
+        return fig
+
     delta_str = f"+{delta_pct:.1f}%" if delta_pct >= 0 else f"{delta_pct:.1f}%"
+    
+    # Data Validation and Cleaning
+    initial_rows = len(df)
+    
+    # Filter out rows with NaN in critical numeric columns
+    numeric_cols = ['vmp_hoy', 'mma7', 'mmc28']
+    df_filtered_numeric = df.dropna(subset=numeric_cols)
+    rows_discarded_numeric = initial_rows - len(df_filtered_numeric)
+    if rows_discarded_numeric > 0:
+        log.warning(f"fig_vmp_tendencia: Discarded {rows_discarded_numeric} rows due to NaN in numeric columns: {numeric_cols}.")
+
+    # Ensure 'fecha' is in a valid format and filter out NaT
+    df_filtered_fecha = df_filtered_numeric.copy() # Operate on a copy to avoid SettingWithCopyWarning
+    df_filtered_fecha['fecha'] = pd.to_datetime(df_filtered_fecha['fecha'], errors='coerce')
+    
+    original_rows_after_numeric_filter = len(df_filtered_fecha)
+    df_filtered_fecha = df_filtered_fecha.dropna(subset=['fecha'])
+    rows_discarded_fecha = original_rows_after_numeric_filter - len(df_filtered_fecha)
+    if rows_discarded_fecha > 0:
+        log.warning(f"fig_vmp_tendencia: Discarded {rows_discarded_fecha} rows due to NaT in 'fecha' column.")
+        
+    df_final = df_filtered_fecha
+    
+    # Log total discarded rows across all filters if any rows were discarded
+    total_rows_discarded = initial_rows - len(df_final)
+    if total_rows_discarded > 0:
+        log.info(f"fig_vmp_tendencia: Total rows discarded due to NaN/NaT: {total_rows_discarded}.")
+
+    # Proceed with plotting if data is not empty after filtering
+    if df_final.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title=f"Sin datos válidos para {nombre_atleta}")
+        return fig
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df["fecha"], y=df["vmp_hoy"], mode="lines+markers",
+        x=df_final["fecha"], y=df_final["vmp_hoy"], mode="lines+markers",
         name="VMP CMJ (m/s)",
         line=dict(color=COLORS["vmp_line"], width=2),
         marker=dict(color=COLORS["vmp_line"], size=5),
     ))
     fig.add_trace(go.Scatter(
-        x=df["fecha"], y=df["mma7"], mode="lines",
+        x=df_final["fecha"], y=df_final["mma7"], mode="lines",
         name="MMA7 (Fatiga Aguda)",
         line=dict(color=COLORS["acute_line"], width=2),
     ))
     fig.add_trace(go.Scatter(
-        x=df["fecha"], y=df["mmc28"], mode="lines",
+        x=df_final["fecha"], y=df_final["mmc28"], mode="lines",
         name="MMC28 (Baseline Crónico)",
         line=dict(color=COLORS["chronic_line"], width=1.5, dash="dot"),
     ))
     fig.add_trace(go.Scatter(
-        x=df["fecha"], y=df["mmc28"] * 0.85, mode="lines",
+        x=df_final["fecha"], y=df_final["mmc28"] * 0.85, mode="lines",
         name="Umbral Alerta (~15%)",
         line=dict(color=COLORS["alert_dash"], width=1, dash="dash"),
     ))
     fig.add_trace(go.Scatter(
-        x=df["fecha"], y=df["mmc28"] * 0.75, mode="lines",
+        x=df_final["fecha"], y=df_final["mmc28"] * 0.75, mode="lines",
         name="Umbral Crítico (~25%)",
         line=dict(color=COLORS["critical_dash"], width=1, dash="dash"),
     ))
@@ -101,7 +154,20 @@ def fig_semaforo_barras(df_estado: pd.DataFrame) -> go.Figure:
     Barras horizontales con estado de cada atleta (peores primero).
     df_estado columnas: nombre, score (0-100), estado, fecha.
     """
-    df = df_estado.sort_values("score", ascending=True).copy()
+    if df_estado.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title="Sin datos para semáforo de barras")
+        return fig
+
+    # Validar y limpiar NaN antes de procesar
+    df = df_estado.dropna(subset=['score']).sort_values("score", ascending=True).copy()
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title="Sin datos válidos para semáforo de barras")
+        return fig
+
     colores = [STATUS_COLOR.get(e, COLORS["text_muted"]) for e in df["estado"]]
     labels  = [f"{s:.0f}% — {e}" for s, e in zip(df["score"], df["estado"])]
 
@@ -164,6 +230,14 @@ def fig_semaforo_historico(
         fig.update_layout(title=titulo or "Sin datos")
         return fig
 
+    # Validar y limpiar NaN/NaT antes de procesar
+    df = df.dropna(subset=['fecha', 'fatiga'])
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title=titulo or "Sin datos válidos")
+        return fig
+
     fechas = df["fecha"].astype(str).tolist()
     fatiga = df["fatiga"].tolist()
     n      = len(fatiga)
@@ -171,15 +245,22 @@ def fig_semaforo_historico(
     # Color por zona (Fase 5: umbrales correctos)
     zone_color = []
     for v in fatiga:
-        if   v >= 75: zone_color.append("#22c55e")   # óptimo
-        elif v >= 50: zone_color.append("#eab308")   # alerta temprana
-        elif v >= 25: zone_color.append("#f97316")   # fatiga acumulada
-        else:         zone_color.append("#ef4444")   # crítico
+        if v >= 75:
+            zone_color.append("#22c55e")   # óptimo
+        elif v >= 50:
+            zone_color.append("#eab308")   # alerta temprana
+        elif v >= 25:
+            zone_color.append("#f97316")   # fatiga acumulada
+        else:
+            zone_color.append("#ef4444")   # crítico
 
-    # Tendencia lineal (polyfit)
-    x_num = np.arange(n, dtype=float)
-    slope, intercept = np.polyfit(x_num, fatiga, 1)
-    trend_y = (slope * x_num + intercept).tolist()
+    # Tendencia lineal (polyfit) si hay suficientes puntos
+    if n > 1:
+        x_num = np.arange(n, dtype=float)
+        slope, intercept = np.polyfit(x_num, fatiga, 1)
+        trend_y = (slope * x_num + intercept).tolist()
+    else:
+        trend_y = fatiga # Solo un punto, la tendencia es el mismo punto
 
     fig = go.Figure()
 
@@ -243,13 +324,26 @@ def fig_historial_barras_atleta(df_hist: pd.DataFrame, nombre: str) -> go.Figure
     Barras de historial de fatiga para UN atleta (últimas 12 sesiones).
     df_hist columnas: fecha, fatiga (0-100), estado.
     """
+    if df_hist.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title=f"Sin historial para {nombre}")
+        return fig
+
+    # Validar y limpiar NaN antes de procesar
+    df = df_hist.dropna(subset=['fatiga']).copy()
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title=f"Sin datos válidos para {nombre}")
+        return fig
+
     _STATUS_CLEAN = {
         "🔴 CRÍTICO": "CRÍTICO",
         "🟠 FATIGA ACUMULADA": "FATIGA ACUMULADA",
         "🟡 ALERTA TEMPRANA": "ALERTA TEMPRANA",
         "🟢 ÓPTIMO": "ÓPTIMO",
     }
-    df = df_hist.copy()
     df["fecha"] = df["fecha"].astype(str)
     df = df.sort_values("fecha").tail(12)
 
@@ -337,6 +431,14 @@ def fig_vmp_ratio_thresholds(df: pd.DataFrame, nombre_atleta: str) -> go.Figure:
         fig.update_layout(title=f"Sin datos para {nombre_atleta}")
         return fig
 
+    # Validar y limpiar NaN/NaT antes de procesar
+    df = df.dropna(subset=['fecha', 'vmp', 'ratio', 'threshold_low', 'threshold_high']).copy()
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(**_DARK_LAYOUT)
+        fig.update_layout(title=f"Sin datos válidos para {nombre_atleta}")
+        return fig
+
     # Asegurar que las fechas estén en formato correcto para Plotly
     df['fecha'] = pd.to_datetime(df['fecha']).dt.strftime('%Y-%m-%d')
 
@@ -389,15 +491,19 @@ def fig_vmp_ratio_thresholds(df: pd.DataFrame, nombre_atleta: str) -> go.Figure:
         margin=dict(l=40, r=20, t=52, b=32),
         # Configuración de ejes Y
         yaxis=dict(
-            title="VMP CMJ (m/s)",
-            titlefont=dict(color=COLORS["vmp_line"]),
+            title=dict(
+                text="VMP CMJ (m/s)",
+                font=dict(color=COLORS["vmp_line"])
+            ),
             tickfont=dict(color=COLORS["vmp_line"]),
             color=COLORS["vmp_line"],
             rangemode='tozero' # Asegura que el eje Y empiece en 0
         ),
         yaxis2=dict(
-            title="Ratio (VMP/MMC28)",
-            titlefont=dict(color=COLORS["acute_line"]),
+            title=dict(
+                text="Ratio (VMP/MMC28)",
+                font=dict(color=COLORS["acute_line"])
+            ),
             tickfont=dict(color=COLORS["acute_line"]),
             color=COLORS["acute_line"],
             overlaying="y", # Superponer sobre el eje y1

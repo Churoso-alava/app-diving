@@ -61,7 +61,6 @@ def get_divers():
     # Ejecutar la consulta y extraer 'data'
     res = client.table("divers").select("*").execute()
     return pd.DataFrame(res.data)
-    exit
 # ─────────────────────────────────────────────────────────────────────────────
 # LECTURA — SELECT
 # ─────────────────────────────────────────────────────────────────────────────
