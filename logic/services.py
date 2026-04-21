@@ -133,7 +133,31 @@ def calcular_metricas(
     n = len(sub)
     if n < 4:
         log.debug("Atleta '%s': %d sesiones, mínimo 4.", atleta, n)
-        return None
+        # Return a structured dict indicating insufficient data
+        # This helps differentiate from a complete lack of data and might
+        # allow UI components to display a more specific status.
+        return {
+            "atleta": atleta,
+            "n_sesiones": n,
+            "estado": "INSUFICIENTE", # Custom status for insufficient VMP sessions
+            "indice_fatiga": None,
+            "color": "#7f7f7f", # Grey color for insufficient data state
+            "accion": f"Se necesitan al menos 4 sesiones para el análisis.",
+            "advertencias": [],
+            "contexto_cientifico": "",
+            "nota_swc": "",
+            # Add other keys with default/None values to match expected dict structure
+            "vmp_hoy": None, "mma7": None, "mmc28": None,
+            "acwr": None, "delta_pct": None, "z_meso": None,
+            "beta_aguda": None, "beta_28": None,
+            "dqi": None, "calidad_dato": "insuficiente",
+            "swc_personal": None, "sd_personal": None, "caida_absoluta": None,
+            "es_ruido_biologico": False, "n_sesiones_desc": 0,
+            "historial": [], "fechas": [], "cv_pct": None, "p_normalidad": None,
+            "edad_atleta": perfil.get("edad") if perfil else 18,
+            "ultima_fecha": str(sub["fecha"].iloc[-1])[:10] if n > 0 else None,
+            "dias_sin_datos": (pd.Timestamp.today().normalize() - pd.Timestamp(sub["fecha"].iloc[-1])).days if n > 0 else None,
+        }
 
     # ── Serie temporal diaria (Fase 5: manejo de nulos) ───────────────────────
     idx        = pd.to_datetime(sub["fecha"])
