@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import date
 
 from core.fuzzy_engine import construir_motor_fuzzy
-from core.services import pipeline_batch, pipeline_diagnostico, calcular_historial_fatiga
+from core.services import pipeline_batch, pipeline_diagnostico, calcular_historial_fatiga, get_vmp_history
 from data.db import cargar_sesiones_raw, cargar_atletas, insertar_sesion
 from ui.charts import fig_vmp_tendencia, fig_semaforo_barras, fig_semaforo_historico
 from ui.auth_session import is_authenticated, get_role, get_user_id
@@ -130,8 +130,8 @@ if rol == "staff":
                 with col_g1:
                     # Encontrar los datos calculados para este atleta en df_batch o llamar directamente
                     # (fig_vmp_tendencia espera df con métricas temporales)
-                    df_atleta_metrics = pipeline_batch(df_raw[df_raw["nombre"] == atleta_sel], simulador)
-                    fig_vmp = fig_vmp_tendencia(df_atleta_metrics, atleta_sel, res["delta_pct"])
+                    df_atleta_history = get_vmp_history(df_raw, atleta_sel)
+                    fig_vmp = fig_vmp_tendencia(df_atleta_history, atleta_sel, res["delta_pct"])
                     st.plotly_chart(fig_vmp, use_container_width=True)
                     
                 with col_g2:
@@ -203,8 +203,8 @@ elif rol == "deportista":
         
         col_g1, col_g2 = st.columns(2)
         with col_g1:
-            df_atleta_metrics = pipeline_batch(df_raw[df_raw["nombre"] == id_deportivo], simulador)
-            fig_vmp = fig_vmp_tendencia(df_atleta_metrics, id_deportivo, res["delta_pct"])
+            df_atleta_history = get_vmp_history(df_raw, id_deportivo)
+            fig_vmp = fig_vmp_tendencia(df_atleta_history, id_deportivo, res["delta_pct"])
             st.plotly_chart(fig_vmp, use_container_width=True)
         with col_g2:
             df_hist = calcular_historial_fatiga(df_raw, id_deportivo, simulador)
