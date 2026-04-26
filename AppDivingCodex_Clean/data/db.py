@@ -8,6 +8,9 @@ Las credenciales deben proveerse vía variables de entorno:
 from __future__ import annotations
 import logging
 import os
+import base64
+import hashlib
+import hmac
 from datetime import date
 from typing import Optional, List, Tuple
 import pandas as pd
@@ -21,6 +24,49 @@ MAX_IMPORT_ROWS: int = 500
 # ── Conjuntos válidos para carga grupal ─────────────────────────────────────
 _VALID_PLATAFORMAS: frozenset[str] = frozenset({"trampolín", "plataforma"})
 _VALID_CAIDAS:      frozenset[str] = frozenset({"pie", "mano"})
+
+# ── Seguridad: hashing de PIN (PBKDF2) ──────────────────────────────────────
+# Formato almacenado en DB (columna `pin_hashed`):
+#   pbkdf2_sha256$<iterations>$<salt_b64>$<dk_b64>
+# No requiere dependencias externas (bcrypt/argon2), pero es suficientemente
+# robusto para un piloto si el número de iteraciones es alto.
+_PIN_HASH_ITERS: int = 200_000
+
+
+def _hash_pin_pbkdf2_sha256(pin: str, *, salt: bytes, iterations: int) -> bytes:
+    return hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), salt, iterations, dklen=32)
+
+
+def crear_pin_hash(pin: str, *, iterations: int = _PIN_HASH_ITERS, salt_b64: str | None = None) -> str:
+    """
+    Crea un hash para almacenar en `perfiles.pin_hashed`.
+    Si `salt_b64` no se pasa, se genera uno nuevo.
+    """
+    if not pin or not pin.strip():
+        raise ValueError("PIN no puede estar vacío")
+    if salt_b64 is None:
+        salt = os.urandom(16)
+        salt_b64 = base64.b64encode(salt).decode("ascii")
+    else:
+        salt = base64.b64decode(salt_b64.encode("ascii"))
+    dk = _hash_pin_pbkdf2_sha256(pin.strip(), salt=salt, iterations=iterations)
+    dk_b64 = base64.b64encode(dk).decode("ascii")
+    return f"pbkdf2_sha256${iterations}${salt_b64}${dk_b64}"
+
+
+def verificar_pin(pin: str, pin_hashed: str) -> bool:
+    """Verifica PIN contra el formato `pbkdf2_sha256$...`."""
+    try:
+        scheme, iters_s, salt_b64, dk_b64 = pin_hashed.split("$", 3)
+        if scheme != "pbkdf2_sha256":
+            return False
+        iterations = int(iters_s)
+        salt = base64.b64decode(salt_b64.encode("ascii"))
+        expected = base64.b64decode(dk_b64.encode("ascii"))
+        actual = _hash_pin_pbkdf2_sha256(pin.strip(), salt=salt, iterations=iterations)
+        return hmac.compare_digest(actual, expected)
+    except Exception:
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,16 +97,28 @@ def validar_credenciales_deportista(usuario: str, pin: str) -> Optional[dict]:
     client = get_client()
     if not client: return None
     try:
-        # En el futuro usaremos hashing, por ahora comparación directa para el piloto
         resp = (
             client.table("perfiles")
             .select("*")
             .eq("usuario_acceso", usuario)
-            .eq("pin", pin)
             .eq("rol", "deportista")
             .execute()
         )
-        return resp.data[0] if resp.data else None
+        perfil = resp.data[0] if resp.data else None
+        if not perfil:
+            return None
+
+        pin_hashed = perfil.get("pin_hashed")
+        if not pin_hashed:
+            # No permitimos PIN en texto plano. Si aún existe una columna `pin`,
+            # se debe migrar a `pin_hashed`.
+            log.error("Perfil '%s' no tiene pin_hashed; migración requerida.", usuario)
+            return None
+
+        if not verificar_pin(pin, str(pin_hashed)):
+            return None
+
+        return perfil
     except Exception as exc:
         log.error("validar_credenciales_deportista: %s", exc)
         return None
