@@ -11,7 +11,7 @@ from core.fuzzy_engine import construir_motor_fuzzy
 from core.services import pipeline_batch, pipeline_diagnostico, calcular_historial_fatiga, get_vmp_history
 from data.db import cargar_sesiones_raw, cargar_atletas, insertar_sesion
 from ui.charts import fig_vmp_tendencia, fig_semaforo_barras, fig_semaforo_historico
-from ui.auth_session import is_authenticated, get_role, get_user_id
+from ui.auth_session import is_authenticated, get_role, get_user_id, get_atleta_vmp
 from ui.auth_pages import render_login, render_user_info
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -181,13 +181,24 @@ if rol == "staff":
 
 elif rol == "deportista":
     # ── VISTA DEPORTISTA: SOLO SUS DATOS ─────────────────────────────────────
-    id_deportivo = get_user_id()
-    st.header(f"Hola, {id_deportivo}")
+    atleta_nombre = get_atleta_vmp()
     
-    # El id_deportivo debe coincidir con el nombre en la tabla sesiones_vmp
-    res = pipeline_diagnostico(id_deportivo, df_raw, simulador)
+    # FAIL-SAFE (P0): Si el perfil no tiene mapeo o el atleta no existe en los datos
+    if not atleta_nombre:
+        st.error("⚠️ Error de configuración: tu perfil no está vinculado a un atleta. Contacta al staff.")
+        st.stop()
     
-    if res:
+    # Validar existencia en el set de datos crudos
+    if atleta_nombre not in df_raw["nombre"].unique():
+        st.error(f"⚠️ Error de datos: No se encuentran registros para '{atleta_nombre}'. Contacta al staff.")
+        st.stop()
+
+    st.header(f"Hola, {atleta_nombre}")
+    
+    # El filtrado se hace estrictamente por nombre_atleta_vmp mapeado
+    res = pipeline_diagnostico(atleta_nombre, df_raw, simulador)
+    
+    if res["estado"] != "INSUFICIENTE":
         # Reutilizar parte de la UI de análisis individual
         c1, c2 = st.columns([1, 3])
         with c1:
@@ -203,15 +214,15 @@ elif rol == "deportista":
         
         col_g1, col_g2 = st.columns(2)
         with col_g1:
-            df_atleta_history = get_vmp_history(df_raw, id_deportivo)
-            fig_vmp = fig_vmp_tendencia(df_atleta_history, id_deportivo, res["delta_pct"])
+            df_atleta_history = get_vmp_history(df_raw, atleta_nombre)
+            fig_vmp = fig_vmp_tendencia(df_atleta_history, atleta_nombre, res["delta_pct"])
             st.plotly_chart(fig_vmp, use_container_width=True)
         with col_g2:
-            df_hist = calcular_historial_fatiga(df_raw, id_deportivo, simulador)
+            df_hist = calcular_historial_fatiga(df_raw, atleta_nombre, simulador)
             fig_hist = fig_semaforo_historico(df_hist, "Mi Historial de Fatiga")
             st.plotly_chart(fig_hist, use_container_width=True)
     else:
-        st.warning("Todavía no tenemos datos suficientes para generar tu diagnóstico (mínimo 4 sesiones).")
+        st.warning(f"Todavía no tenemos datos suficientes para generar tu diagnóstico (mínimo 4 sesiones). Sesiones actuales: {res['n_sesiones']}/4")
         st.info("Sigue entrenando y registrando tus sesiones con el equipo.")
 
 # ─────────────────────────────────────────────────────────────────────────────

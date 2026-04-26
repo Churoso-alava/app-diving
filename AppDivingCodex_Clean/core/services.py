@@ -271,7 +271,7 @@ def pipeline_diagnostico(
     simulador,
     ventana_meso: int = 28,
     perfil: dict | None = None,
-) -> DiagnosticResult | None:
+) -> DiagnosticResult:
     """
     Pipeline completo: datos → métricas → motor Mamdani → resultado.
 
@@ -291,15 +291,14 @@ def pipeline_diagnostico(
     ventana_meso: Ventana en días para Z-Score mesociclo.
     perfil      : {"edad": int} opcional para multiplicador SWC pediátrico.
 
-    Retorna None si el atleta no tiene datos suficientes.
-    Retorna dict con: indice_fatiga, estado, color, accion, advertencias,
-                      contexto_cientifico, nota_swc + todas las métricas.
+    Retorna siempre un diccionario (DiagnosticResult).
+    Si hay datos insuficientes (<4 sesiones), el estado será 'INSUFICIENTE'.
     """
     metricas = calcular_metricas(df_raw, atleta, ventana_meso, perfil)
     
     # Si calcular_metricas ya determinó que los datos son insuficientes, retornamos ese dict
     if metricas.get("estado") == "INSUFICIENTE":
-        return metricas # type: ignore
+        return metricas
 
     # ── Filtro SWC pre-motor ─────────────────────────────────────────────────
     if metricas["es_ruido_biologico"]:

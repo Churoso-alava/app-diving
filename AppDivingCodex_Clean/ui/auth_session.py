@@ -49,6 +49,15 @@ def get_user_id() -> Optional[Any]:
         return perfil.get("id_deportivo")
     return None
 
+def get_atleta_vmp() -> Optional[str]:
+    """
+    Retorna el nombre del atleta mapeado para filtrar datos técnicos.
+    """
+    perfil = st.session_state.get(KEY_USER_PROFILE)
+    if perfil:
+        return perfil.get("nombre_atleta_vmp")
+    return None
+
 def get_user_name() -> Optional[str]:
     """
     Retorna el nombre de usuario o email para mostrar.
