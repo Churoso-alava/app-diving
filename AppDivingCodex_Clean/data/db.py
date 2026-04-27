@@ -159,11 +159,10 @@ def cargar_sesiones_raw() -> pd.DataFrame:
     client = get_client()
     if not client: return pd.DataFrame()
     try:
-        resp = client.table("sesiones_vmp").select("*").order("fecha").asc().execute()
+        resp = client.table("sesiones_vmp").select("*").order("fecha").execute()
         if not resp.data:
-            log.warning("La tabla 'sesiones_vmp' está vacía.")
-            return pd.DataFrame()
-
+        log.warning("La tabla 'sesiones_vmp' está vacía.")
+        return pd.DataFrame()
         df = pd.DataFrame(resp.data)
         df.columns = [c.lower() for c in df.columns]
 
