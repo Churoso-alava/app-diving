@@ -262,8 +262,19 @@ def insertar_wellness(
         }).execute()
         return True, "Wellness registrado correctamente."
     except Exception as exc:
+        error_msg = str(exc)
         log.error("insertar_wellness: %s", exc)
-        return False, str(exc)
+
+        # --- Inicio de mejora para mensajes de error ---
+        # Supabase/PostgreSQL usualmente devuelve errores de duplicidad en el mensaje de excepción.
+        # Buscamos una frase común para identificar estos casos.
+        if "duplicate key value violates unique constraint" in error_msg.lower():
+            # Mensaje amigable para duplicados
+            return False, "Error: Ya existe un registro de wellness para este atleta en esta fecha."
+        else:
+            # Mensaje genérico para otros tipos de error
+            return False, "Ocurrió un error al registrar el wellness. Por favor, inténtalo de nuevo más tarde o contacta al soporte."
+        # --- Fin de mejora para mensajes de error ---
 
 
 def insertar_carga_sesion(
