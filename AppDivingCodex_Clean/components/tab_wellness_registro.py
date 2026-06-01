@@ -69,7 +69,39 @@ def render_wellness_registro():
         })
         
         edited_df = st.data_editor(df_grupal, use_container_width=True)
-        # Save logic for Task 3
+
+        if st.button("Guardar Sesiones Grupales"):
+            if edited_df.empty:
+                st.warning("No hay datos para guardar.")
+            else:
+                for _, row in edited_df.iterrows():
+                    try:
+                        # Basic validation: ensure values are numeric
+                        sueno = int(row["Sueño"])
+                        fatiga = int(row["Fatiga"])
+                        estres = int(row["Estrés"])
+                        dolor = int(row["Dolor"])
+                        humor = int(row["Humor"])
+
+                        success, msg = insertar_wellness(
+                            nombre=str(row["Atleta"]),
+                            fecha=fecha_grupal,
+                            sueno=sueno,
+                            fatiga_hooper=fatiga,
+                            estres=estres,
+                            dolor=dolor,
+                            humor=humor,
+                            notas=""
+                        )
+                        if not success:
+                            st.error(f"Error guardando {row['Atleta']}: {msg}")
+                    except ValueError:
+                        st.error(f"Datos inválidos para {row['Atleta']}. Asegúrese de que todas las métricas sean números.")
+                    except Exception as e:
+                        st.error(f"Error inesperado procesando {row['Atleta']}: {str(e)}")
+
+                st.success("Proceso de guardado grupal finalizado.")
+                st.rerun()
 
     # Mostrar mensaje persistente si existe
     if 'last_wellness_msg' in st.session_state:
