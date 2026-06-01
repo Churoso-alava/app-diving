@@ -19,11 +19,45 @@ class TestInjuryInputValidacion:
             tipo="Aguda",
             gravedad="Moderada",
         )
-        assert record.estado == "Activa"    # default
-        assert record.notas == ""           # default
-        assert record.fecha_alta is None    # default
+        assert record.estado == "Activa"
+        assert record.notas == ""
+        assert record.fecha_evento is None
+        assert record.mecanismo_contacto is False
 
-    def test_to_dict_no_incluye_fecha_alta_none(self):
+    def test_instancia_valida_nuevos_campos(self):
+        record = InjuryInput(
+            atleta="Carlos",
+            fecha_lesion="2026-01-15",
+            zona_corporal="Rodilla",
+            tipo="Aguda",
+            gravedad="Moderada",
+            tipo_tejido="musculo",
+            mecanismo="aguda",
+            recurrencia="nueva",
+            mecanismo_contacto=True,
+            fecha_evento="2026-01-14",
+            fecha_alta_medica="2026-01-20",
+            fecha_rtt="2026-01-25",
+            fecha_rtp="2026-02-01"
+        )
+        d = record.to_dict()
+        assert d["tipo_tejido"] == "musculo"
+        assert d["mecanismo"] == "aguda"
+        assert d["mecanismo_contacto"] is True
+        assert d["fecha_evento"] == "2026-01-14"
+
+    def test_fecha_evento_invalida_lanza_error(self):
+        with pytest.raises(ValueError, match="fecha_evento"):
+            InjuryInput(
+                atleta="Carlos",
+                fecha_lesion="2026-01-15",
+                zona_corporal="Rodilla",
+                tipo="Aguda",
+                gravedad="Leve",
+                fecha_evento="not-a-date"
+            )
+
+    def test_to_dict_no_incluye_opcionales_none(self):
         record = InjuryInput(
             atleta="Ana",
             fecha_lesion="2026-01-15",
@@ -32,23 +66,12 @@ class TestInjuryInputValidacion:
             gravedad="Leve",
         )
         d = record.to_dict()
-        assert "fecha_alta" not in d
+        assert "fecha_evento" not in d
+        assert "fecha_alta_medica" not in d
+        assert "fecha_rtt" not in d
+        assert "fecha_rtp" not in d
         assert d["atleta"] == "Ana"
         assert d["estado"] == "Activa"
-
-    def test_to_dict_incluye_fecha_alta_si_presente(self):
-        record = InjuryInput(
-            atleta="Luis",
-            fecha_lesion="2026-01-01",
-            zona_corporal="Tobillo",
-            tipo="Aguda",
-            gravedad="Leve",
-            estado="Alta",
-            fecha_alta="2026-01-20",
-        )
-        d = record.to_dict()
-        assert d["fecha_alta"] == "2026-01-20"
-        assert d["estado"] == "Alta"
 
     def test_atleta_vacio_lanza_error(self):
         with pytest.raises(ValueError, match="atleta"):
@@ -112,14 +135,14 @@ class TestInjuryInputValidacion:
             )
 
     def test_fecha_alta_invalida_lanza_error(self):
-        with pytest.raises(ValueError, match="fecha_alta"):
+        with pytest.raises(ValueError, match="fecha_alta_medica"):
             InjuryInput(
                 atleta="Luis",
                 fecha_lesion="2026-01-01",
                 zona_corporal="Tobillo",
                 tipo="Aguda",
                 gravedad="Leve",
-                fecha_alta="mañana",  # inválida
+                fecha_alta_medica="mañana",  # inválida
             )
 
     def test_multiples_errores_en_un_mensaje(self):

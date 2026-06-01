@@ -97,6 +97,22 @@ class DiagnosticResult(AthleteMetrics):
 # LESIONES — Constantes y Esquemas
 # ─────────────────────────────────────────────────────────────────────────────
 
+from enum import Enum
+
+class TipoTejido(str, Enum):
+    MUSCULO = "musculo"
+    TENDON = "tendon"
+    LIGAMENTO = "ligamento"
+    OTRO = "otro"
+
+class MecanismoInicio(str, Enum):
+    AGUDA = "aguda"
+    SOBREUSO = "sobreuso"
+
+class HistorialRecurrencia(str, Enum):
+    NUEVA = "nueva"
+    RECURRENCIA = "recurrencia"
+
 ZONA_CORPORAL_OPTIONS: list[str] = [
     "Hombro", "Rodilla", "Espalda", "Tobillo",
     "Muñeca", "Cadera", "Cuello", "Otro",
@@ -110,53 +126,51 @@ ESTADO_LESION_OPTIONS:  list[str] = ["Activa", "Recuperación", "Alta"]
 class InjuryInput:
     """
     Valida y normaliza los datos de una lesión antes de insertar en la DB.
-    Sigue el mismo patrón que SessionInput: validación en __post_init__,
-    serialización en to_dict().
     """
-    atleta:        str
-    fecha_lesion:  str           # ISO 8601: "YYYY-MM-DD"
-    zona_corporal: str
-    tipo:          str           # Aguda | Sobreuso
-    gravedad:      str           # Leve | Moderada | Grave
-    estado:        str = "Activa"
-    notas:         str = ""
-    fecha_alta:    Optional[str] = None  # ISO 8601, sólo si estado == "Alta"
+    atleta:            str
+    fecha_lesion:      str           # ISO 8601: "YYYY-MM-DD"
+    zona_corporal:     str
+    tipo:              str           # Aguda | Sobreuso
+    gravedad:          str           # Leve | Moderada | Grave
+    estado:            str = "Activa"
+    notas:             str = ""
+    # Nuevos campos
+    tipo_tejido:       Optional[str] = None
+    mecanismo:         Optional[str] = None
+    recurrencia:       Optional[str] = None
+    mecanismo_contacto: bool = False
+    fecha_evento:      Optional[str] = None
+    fecha_alta_medica: Optional[str] = None
+    fecha_rtt:         Optional[str] = None
+    fecha_rtp:         Optional[str] = None
 
     def __post_init__(self) -> None:
         errors: list[str] = []
         if not self.atleta or not self.atleta.strip():
             errors.append("atleta no puede estar vacío")
         if self.zona_corporal not in ZONA_CORPORAL_OPTIONS:
-            errors.append(
-                f"zona_corporal '{self.zona_corporal}' inválida. "
-                f"Opciones: {ZONA_CORPORAL_OPTIONS}"
-            )
+            errors.append(f"zona_corporal inválida. Opciones: {ZONA_CORPORAL_OPTIONS}")
         if self.tipo not in TIPO_LESION_OPTIONS:
-            errors.append(
-                f"tipo '{self.tipo}' inválido. Opciones: {TIPO_LESION_OPTIONS}"
-            )
+            errors.append(f"tipo inválido. Opciones: {TIPO_LESION_OPTIONS}")
         if self.gravedad not in GRAVEDAD_OPTIONS:
-            errors.append(
-                f"gravedad '{self.gravedad}' inválida. Opciones: {GRAVEDAD_OPTIONS}"
-            )
+            errors.append(f"gravedad inválida. Opciones: {GRAVEDAD_OPTIONS}")
         if self.estado not in ESTADO_LESION_OPTIONS:
-            errors.append(
-                f"estado '{self.estado}' inválido. Opciones: {ESTADO_LESION_OPTIONS}"
-            )
-        try:
-            pd.Timestamp(self.fecha_lesion)
-        except Exception:
-            errors.append(f"fecha_lesion inválida: '{self.fecha_lesion}'")
-        if self.fecha_alta is not None:
-            try:
-                pd.Timestamp(self.fecha_alta)
-            except Exception:
-                errors.append(f"fecha_alta inválida: '{self.fecha_alta}'")
+            errors.append(f"estado inválido. Opciones: {ESTADO_LESION_OPTIONS}")
+        
+        # Validación de nuevas fechas
+        for fecha_field in ["fecha_lesion", "fecha_evento", "fecha_alta_medica", "fecha_rtt", "fecha_rtp"]:
+            fecha_val = getattr(self, fecha_field)
+            if fecha_val:
+                try:
+                    pd.Timestamp(fecha_val)
+                except Exception:
+                    errors.append(f"{fecha_field} inválida: '{fecha_val}'")
+                    
         if errors:
             raise ValueError("InjuryInput inválido: " + "; ".join(errors))
 
     def to_dict(self) -> dict:
-        d: dict = {
+        d = {
             "atleta":        self.atleta.strip(),
             "fecha_lesion":  self.fecha_lesion,
             "zona_corporal": self.zona_corporal,
@@ -164,9 +178,15 @@ class InjuryInput:
             "gravedad":      self.gravedad,
             "estado":        self.estado,
             "notas":         self.notas.strip(),
+            "tipo_tejido":   self.tipo_tejido,
+            "mecanismo":     self.mecanismo,
+            "recurrencia":   self.recurrencia,
+            "mecanismo_contacto": self.mecanismo_contacto,
         }
-        if self.fecha_alta is not None:
-            d["fecha_alta"] = self.fecha_alta
+        for f in ["fecha_evento", "fecha_alta_medica", "fecha_rtt", "fecha_rtp"]:
+            val = getattr(self, f)
+            if val:
+                d[f] = val
         return d
 
 

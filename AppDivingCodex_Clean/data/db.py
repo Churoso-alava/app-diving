@@ -508,7 +508,25 @@ def insertar_carga_sesion_batch(cargas: List[dict]) -> Tuple[bool, str]:
         log.error("insertar_carga_sesion_batch: %s", exc)
         return False, str(exc)
 
-def insertar_lesion(atleta: str, fecha_lesion: date, zona_corporal: str, tipo: str, gravedad: str, estado: str = "Activa", notas: str = "", fecha_alta: Optional[date] = None) -> Tuple[bool, str]:
+def insertar_lesion(
+    atleta: str, 
+    fecha_lesion: date, 
+    zona_corporal: str, 
+    tipo: str, 
+    gravedad: str, 
+    estado: str = "Activa", 
+    notas: str = "", 
+    fecha_alta: Optional[date] = None,
+    # Nuevos campos
+    tipo_tejido: Optional[str] = None,
+    mecanismo: Optional[str] = None,
+    recurrencia: Optional[str] = None,
+    mecanismo_contacto: bool = False,
+    fecha_evento: Optional[date] = None,
+    fecha_alta_medica: Optional[date] = None,
+    fecha_rtt: Optional[date] = None,
+    fecha_rtp: Optional[date] = None,
+) -> Tuple[bool, str]:
     # Validate with InjuryInput
     try:
         injury = InjuryInput(
@@ -519,7 +537,14 @@ def insertar_lesion(atleta: str, fecha_lesion: date, zona_corporal: str, tipo: s
             gravedad=gravedad,
             estado=estado,
             notas=notas,
-            fecha_alta=str(fecha_alta) if fecha_alta else None
+            tipo_tejido=tipo_tejido,
+            mecanismo=mecanismo,
+            recurrencia=recurrencia,
+            mecanismo_contacto=mecanismo_contacto,
+            fecha_evento=str(fecha_evento) if fecha_evento else None,
+            fecha_alta_medica=str(fecha_alta_medica) if fecha_alta_medica else None,
+            fecha_rtt=str(fecha_rtt) if fecha_rtt else None,
+            fecha_rtp=str(fecha_rtp) if fecha_rtp else None
         )
     except ValueError as e:
         return False, str(e)

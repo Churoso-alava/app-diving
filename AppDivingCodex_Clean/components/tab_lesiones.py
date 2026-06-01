@@ -22,6 +22,9 @@ from core.schemas import (
     TIPO_LESION_OPTIONS,
     GRAVEDAD_OPTIONS,
     ESTADO_LESION_OPTIONS,
+    TipoTejido,
+    MecanismoInicio,
+    HistorialRecurrencia,
 )
 from core.services import resumen_lesiones_equipo
 from data.db import (
@@ -78,15 +81,25 @@ def _render_kpi_banner(resumen: dict) -> None:
 def _render_form_registro(atletas: list[str]) -> None:
     st.subheader("Registrar Nueva Lesión")
     with st.form("form_lesion_nueva", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             atleta_sel = st.selectbox("Atleta", atletas, key="reg_atleta")
             fecha_les  = st.date_input("Fecha de Lesión", value=date.today(), key="reg_fecha")
+            fecha_evento = st.date_input("Fecha del Evento", value=date.today(), key="reg_fecha_evento")
             zona       = st.selectbox("Zona Corporal", ZONA_CORPORAL_OPTIONS, key="reg_zona")
         with col2:
+            tipo_tejido = st.selectbox("Tipo de Tejido", [e.value for e in TipoTejido], key="reg_tipo_tejido")
+            mecanismo = st.selectbox("Mecanismo", [e.value for e in MecanismoInicio], key="reg_mecanismo")
+            recurrencia = st.selectbox("Recurrencia", [e.value for e in HistorialRecurrencia], key="reg_recurrencia")
+            mecanismo_contacto = st.checkbox("¿Mecanismo de contacto?", key="reg_contacto")
+        with col3:
             tipo       = st.selectbox("Tipo", TIPO_LESION_OPTIONS, key="reg_tipo")
             gravedad   = st.selectbox("Gravedad", GRAVEDAD_OPTIONS, key="reg_gravedad")
             estado_ini = st.selectbox("Estado Inicial", ESTADO_LESION_OPTIONS, index=0, key="reg_estado")
+            fecha_alta_med = st.date_input("Fecha Alta Médica", value=None, key="reg_alta_med")
+            fecha_rtt = st.date_input("Fecha RTT", value=None, key="reg_rtt")
+            fecha_rtp = st.date_input("Fecha RTP", value=None, key="reg_rtp")
+            
         notas = st.text_area(
             "Notas clínicas",
             placeholder="Mecanismo de lesión, contexto del entrenamiento, observaciones...",
@@ -103,6 +116,14 @@ def _render_form_registro(atletas: list[str]) -> None:
             gravedad=gravedad,
             estado=estado_ini,
             notas=notas,
+            tipo_tejido=tipo_tejido,
+            mecanismo=mecanismo,
+            recurrencia=recurrencia,
+            mecanismo_contacto=mecanismo_contacto,
+            fecha_evento=fecha_evento,
+            fecha_alta_medica=fecha_alta_med,
+            fecha_rtt=fecha_rtt,
+            fecha_rtp=fecha_rtp,
         )
         if ok:
             st.success(msg)

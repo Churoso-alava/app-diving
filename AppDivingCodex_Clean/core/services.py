@@ -54,7 +54,14 @@ def registrar_lesion_servicio(data: InjuryInput) -> Tuple[bool, str]:
         gravedad=data.gravedad,
         estado=data.estado,
         notas=data.notas,
-        fecha_alta=pd.Timestamp(data.fecha_alta).date() if data.fecha_alta else None
+        tipo_tejido=data.tipo_tejido,
+        mecanismo=data.mecanismo,
+        recurrencia=data.recurrencia,
+        mecanismo_contacto=data.mecanismo_contacto,
+        fecha_evento=pd.Timestamp(data.fecha_evento).date() if data.fecha_evento else None,
+        fecha_alta_medica=pd.Timestamp(data.fecha_alta_medica).date() if data.fecha_alta_medica else None,
+        fecha_rtt=pd.Timestamp(data.fecha_rtt).date() if data.fecha_rtt else None,
+        fecha_rtp=pd.Timestamp(data.fecha_rtp).date() if data.fecha_rtp else None
     )
 
 def obtener_lesiones_activas_servicio(atleta: Optional[str] = None) -> pd.DataFrame:

@@ -1,172 +1,103 @@
-# Refactor Módulo Lesiones Implementation Plan
+# Módulo de Gestión de Lesiones - Plan de Implementación
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement new RTP (Return to Play) milestones and biomechanical classification fields in the injury management module.
+**Goal:** Refactorizar el módulo de lesiones para incluir hitos biológicos del retorno a la competición (RTP) y una clasificación biomecánica más precisa.
 
-**Architecture:** Database extension via SQL ALTER statements, schema updates in `core/schemas.py`, and UI refactor in `components/tab_lesiones.py` using a 3-column layout.
+**Architecture:** Se extenderá el modelo de datos (SQL + Python Dataclasses) y se reorganizará el formulario de registro en la UI utilizando un layout de 3 columnas para mejorar la usabilidad.
 
-**Tech Stack:** Python, Streamlit, SQL (SQLite).
+**Tech Stack:** Python (Streamlit), Supabase (PostgreSQL), Dataclasses.
 
 ---
 
-### Task 1: Update Database Schema
+- [completed] Task 1: Migración de Base de Datos
 
 **Files:**
-- Modify: `docs/migrations/add_carga_entrenamiento.sql` (Add new columns)
-- Modify: `data/db.py` (Ensure DB connection handles migration or update script)
+- Create: `docs/migrations/add_lesiones_refactor.sql`
 
-- [ ] **Step 1: Write SQL migration**
+- [x] **Step 1: Crear archivo de migración SQL**
 
 ```sql
--- Add new columns to lesiones table
-ALTER TABLE lesiones ADD COLUMN tipo_tejido TEXT;
-ALTER TABLE lesiones ADD COLUMN mecanismo TEXT;
-ALTER TABLE lesiones ADD COLUMN recurrencia TEXT;
-ALTER TABLE lesiones ADD COLUMN mecanismo_contacto BOOLEAN DEFAULT FALSE;
-ALTER TABLE lesiones ADD COLUMN fecha_evento DATE;
-ALTER TABLE lesiones ADD COLUMN fecha_alta_medica DATE;
-ALTER TABLE lesiones ADD COLUMN fecha_rtt DATE;
-ALTER TABLE lesiones ADD COLUMN fecha_rtp DATE;
+-- Agregar campos de clasificación biomecánica y hitos RTP
+ALTER TABLE lesiones 
+ADD COLUMN IF NOT EXISTS tipo_tejido TEXT,
+ADD COLUMN IF NOT EXISTS mecanismo TEXT,
+ADD COLUMN IF NOT EXISTS recurrencia TEXT,
+ADD COLUMN IF NOT EXISTS mecanismo_contacto BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS fecha_evento DATE,
+ADD COLUMN IF NOT EXISTS fecha_alta_medica DATE,
+ADD COLUMN IF NOT EXISTS fecha_rtt DATE,
+ADD COLUMN IF NOT EXISTS fecha_rtp DATE;
 ```
 
-- [ ] **Step 2: Commit**
+---
 
-```bash
-git add docs/migrations/add_carga_entrenamiento.sql
-git commit -m "feat: add schema migration for injury module"
-```
-
-### Task 2: Update Data Models
+- [completed] Task 2: Actualización de Esquemas (Core)
 
 **Files:**
 - Modify: `core/schemas.py`
 
-- [ ] **Step 1: Write test for new schemas**
-
-```python
-import pytest
-from core.schemas import InjuryInput, TipoTejido, MecanismoInicio, HistorialRecurrencia
-from datetime import date
-
-def test_injury_input_validation():
-    data = {
-        "tipo_tejido": "musculo",
-        "mecanismo": "aguda",
-        "recurrencia": "nueva",
-        "fecha_evento": date(2026, 6, 1)
-    }
-    injury = InjuryInput(**data)
-    assert injury.tipo_tejido == TipoTejido.musculo
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest tests/test_injury_schemas.py`
-Expected: FAIL
-
-- [ ] **Step 3: Update `core/schemas.py`**
+- [x] **Step 1: Definir nuevos Enums**
 
 ```python
 from enum import Enum
-from pydantic import BaseModel, Field
-from datetime import date
-from typing import Optional
 
 class TipoTejido(str, Enum):
-    musculo = "musculo"
-    tendon = "tendon"
-    ligamento = "ligamento"
-    otro = "otro"
+    MUSCULO = "musculo"
+    TENDON = "tendon"
+    LIGAMENTO = "ligamento"
+    OTRO = "otro"
 
 class MecanismoInicio(str, Enum):
-    aguda = "aguda"
-    sobreuso = "sobreuso"
+    AGUDA = "aguda"
+    SOBREUSO = "sobreuso"
 
 class HistorialRecurrencia(str, Enum):
-    nueva = "nueva"
-    recurrencia = "recurrencia"
-
-class InjuryInput(BaseModel):
-    # ... existing fields
-    tipo_tejido: Optional[TipoTejido] = None
-    mecanismo: Optional[MecanismoInicio] = None
-    recurrencia: Optional[HistorialRecurrencia] = None
-    mecanismo_contacto: bool = False
-    fecha_evento: Optional[date] = None
-    fecha_alta_medica: Optional[date] = None
-    fecha_rtt: Optional[date] = None
-    fecha_rtp: Optional[date] = None
-    
-    class Config:
-        use_enum_values = True
+    NUEVA = "nueva"
+    RECURRENCIA = "recurrencia"
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 2: Actualizar InjuryInput**
 
-Run: `pytest tests/test_injury_schemas.py`
-Expected: PASS
+Modificar `InjuryInput` en `core/schemas.py` para incluir los nuevos campos y actualizar las validaciones en `__post_init__`.
 
-- [ ] **Step 5: Commit**
+---
 
-```bash
-git add core/schemas.py tests/test_injury_schemas.py
-git commit -m "feat: add injury schema models"
-```
+- [completed] Task 3: Actualización de persistencia y servicios
 
-### Task 3: Update UI Form
+**Files:**
+- Modify: `data/db.py`
+- Modify: `core/services.py`
+
+- [x] **Step 1: Actualizar `insertar_lesion` en `data/db.py`**
+Actualizar la función para mapear los nuevos campos desde el dict `InjuryInput`.
+
+- [x] **Step 2: Actualizar `cargar_lesiones_activas` y `cargar_historial_lesiones`**
+Asegurar que los nuevos campos se seleccionen y mapeen correctamente.
+
+---
+
+- [completed] Task 4: Refactorización UI (Streamlit)
 
 **Files:**
 - Modify: `components/tab_lesiones.py`
 
-- [ ] **Step 1: Update UI layout to 3 columns**
+- [x] **Step 1: Reorganizar Formulario de Registro (`_render_form_registro`)**
+Implementar el layout de 3 columnas propuesto en el diseño.
 
-```python
-import streamlit as st
+- [x] **Step 2: Actualizar vista de Seguimiento (`_render_seguimiento_activo`)**
+Asegurar que los nuevos campos sean visibles o editables si aplica.
 
-def render_lesiones_tab():
-    with st.form("lesiones_form"):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.subheader("General")
-            # ... inputs for atleta, fecha, zona
-        
-        with col2:
-            st.subheader("Clasificación")
-            # ... inputs for tipo_tejido, mecanismo, recurrencia, contacto
-        
-        with col3:
-            st.subheader("Hitos RTP")
-            # ... inputs for fechas
-            
-        submit = st.form_submit_button("Registrar")
-```
+---
 
-- [ ] **Step 2: Commit**
-
-```bash
-git add components/tab_lesiones.py
-git commit -m "feat: update injury tab UI"
-```
-
-### Task 4: Integration Tests
+- [completed] Task 5: Testing
 
 **Files:**
-- Modify: `tests/test_injury_integration.py`
+- Modify: `tests/test_injury_schemas.py`
+- Modify: `tests/test_injury_services.py`
 
-- [ ] **Step 1: Add integration test for new fields**
+- [x] **Step 1: Actualizar tests de validación de esquemas**
+Añadir casos de prueba para los nuevos campos de `InjuryInput`.
 
-```python
-def test_injury_registration_with_new_fields(db_session):
-    # ... setup
-    # ... call registration service
-    # ... assert new fields in db
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add tests/test_injury_integration.py
-git commit -m "feat: add integration tests for injury refactor"
-```
+- [x] **Step 2: Añadir tests de integración para persistencia**
+Verificar que la inserción y carga de lesiones incluya correctamente los nuevos campos.
