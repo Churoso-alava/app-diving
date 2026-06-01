@@ -1,45 +1,43 @@
-# Diseño de Refactorización: Módulo de Gestión de Lesiones (Avanzado)
+# Diseño: Módulo Unificado de Eventos Médicos (Lesiones y Enfermedades)
 
 **Fecha:** 2026-06-01
-**Goal:** Evolucionar el módulo de lesiones para registrar hitos biológicos del retorno a la competición (RTP) y una clasificación biomecánica más precisa.
+**Goal:** Optimizar el registro de eventos médicos unificando lesiones y enfermedades, eliminando redundancias en fechas y mejorando la claridad de los campos.
 
-## 1. Arquitectura y Enfoque
-La refactorización se basa en extender el modelo actual de datos para soportar un seguimiento clínico más detallado sin romper la persistencia existente. Se utilizarán `Enum`s de Python para tipar fuertemente la clasificación y se actualizará el esquema de la base de datos mediante comandos `ALTER TABLE`.
+## 1. Modelo de Datos Unificado (`eventos_medicos`)
 
-## 2. Esquema de Datos (Base de Datos)
-La tabla `lesiones` se ampliará con:
-- `tipo_tejido` (TEXT, CHECK constraint)
-- `mecanismo` (TEXT, CHECK constraint)
-- `recurrencia` (TEXT, CHECK constraint)
-- `mecanismo_contacto` (BOOLEAN, default FALSE)
-- `fecha_evento` (DATE)
-- `fecha_alta_medica` (DATE)
-- `fecha_rtt` (DATE)
-- `fecha_rtp` (DATE)
+### Campos Comunes
+- `atleta` (str)
+- `tipo_evento` (Enum: 'Lesión', 'Enfermedad')
+- `fecha_inicio` (date) — *Fecha del suceso o inicio de síntomas.*
+- `gravedad` (Enum: 'Leve', 'Moderada', 'Grave')
+- `estado` (Enum: 'Activa', 'Recuperación', 'Alta')
+- `notas` (str)
 
-## 3. Modelo de Datos (Python - `core/schemas.py`)
-Se introducirán las siguientes estructuras:
-- `TipoTejido` (Enum: musculo, tendon, ligamento, otro)
-- `MecanismoInicio` (Enum: aguda, sobreuso)
-- `HistorialRecurrencia` (Enum: nueva, recurrencia)
-- Actualización de `InjuryInput` para incorporar estos nuevos campos y validaciones en `__post_init__`.
+**Fechas de Proceso (Optimizado):**
+- `fecha_alta_medica` (date, opcional)
+- `fecha_vuelta_entrenamiento` (date, opcional)
+- `fecha_vuelta_juego` (date, opcional)
 
-## 4. UI Layout (Formulario Único)
-La UI en `components/tab_lesiones.py` se reorganizará en un layout de 3 columnas dentro de un formulario único para mejorar la UX:
+### Campos Específicos
 
-*   **Columna 1 (General):** Atleta, Fecha del Evento, Zona Corporal.
-*   **Columna 2 (Clasificación):** Tipo de Tejido, Mecanismo de Inicio, Recurrencia, Checkbox de contacto.
-*   **Columna 3 (Hitos RTP):** Fecha Alta Médica, Fecha RTT, Fecha RTP.
+#### Si es 'Lesión'
+- `zona_corporal` (Enum/str): [Hombro, Codo, Muñeca, Mano, Cuello, Columna Dorsal, Columna Lumbar, Cadera, Pelvis, Muslo, Rodilla, Pierna, Tobillo, Pie, Otro]
+- `tipo_tejido` (Enum: Músculo, Tendón, Ligamento, Otro)
+- `mecanismo` (Enum: Trauma o Golpe, Sobreuso)
+- `recurrencia` (Enum: Nueva, Recurrencia)
 
-## 5. Manejo de Errores y Testing
-- Se mantendrá la validación centralizada en `InjuryInput.__post_init__`.
-- Se añadirán tests unitarios para verificar la validación de los nuevos campos y la serialización a diccionario.
+#### Si es 'Enfermedad'
+- `tipo_enfermedad` (Enum: Respiratoria, Digestiva, Infecciosa, Otra)
+- `es_contagiosa` (bool)
 
 ---
-## 6. Self-Review
-- [x] Placeholder scan: No hay TBDs.
-- [x] Consistencia interna: Los nombres de los Enums coinciden con el SQL propuesto.
-- [x] Scope: El refactor es acotado al módulo de lesiones.
-- [x] Ambiguity: Los hitos temporales (RTT/RTP) están definidos explícitamente en el plan.
 
-*Documento creado y listo para revisión.*
+## 2. Plan de Implementación (Resumen)
+
+1. **DB:** Ajustar tabla `lesiones` (o crear `eventos_medicos`) con los nuevos campos.
+2. **Core:** Actualizar `schemas.py` y `services.py` con el nuevo modelo unificado.
+3. **UI:** Refactorizar `components/tab_lesiones.py` para usar `tipo_evento` y mostrar campos condicionales.
+4. **Testing:** Actualizar tests de validación e integración.
+
+---
+*Diseño final aprobado por el usuario.*

@@ -7,7 +7,7 @@ import pandas as pd
 class TestInsertarLesion:
     def test_atleta_vacio_rechazado_antes_de_db(self):
         from data.db import insertar_lesion
-        ok, msg = insertar_lesion(atleta="", fecha_lesion=date(2026, 1, 15), zona_corporal="Rodilla", tipo="Aguda", gravedad="Leve")
+        ok, msg = insertar_lesion(atleta="", fecha_lesion=date(2026, 1, 15), zona_corporal="Rodilla", tipo="Aguda")
         assert not ok
         assert "atleta" in msg.lower()
 
@@ -17,7 +17,7 @@ class TestInsertarLesion:
         mock_client = MagicMock()
         mock_client.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[{}])
         mock_get_client.return_value = mock_client
-        ok, msg = insertar_lesion(atleta="Carlos", fecha_lesion=date(2026, 1, 15), zona_corporal="Hombro", tipo="Sobreuso", gravedad="Moderada")
+        ok, msg = insertar_lesion(atleta="Carlos", fecha_lesion=date(2026, 1, 15), zona_corporal="Hombro", tipo="Sobreuso")
         assert ok
         mock_client.table.assert_called_with("lesiones")
 

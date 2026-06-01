@@ -17,7 +17,7 @@ def test_injury_flow_integration(mock_get_client):
     # Mock insert response
     mock_client.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[{}])
     
-    ok, msg = insertar_lesion(atleta=atleta, fecha_lesion=fecha, zona_corporal="Rodilla", tipo="Aguda", gravedad="Leve")
+    ok, msg = insertar_lesion(atleta=atleta, fecha_lesion=fecha, zona_corporal="Rodilla", tipo="Aguda")
     assert ok, msg
     
     # 2. Query active lesions
