@@ -74,6 +74,11 @@ def verificar_pin(pin: str, pin_hashed: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# NOTA SOBRE MIGRACIONES:
+# Las migraciones de base de datos se aplican manualmente vía el SQL Editor
+# en el Supabase Dashboard. Los archivos se encuentran en docs/migrations/.
+# ─────────────────────────────────────────────────────────────────────────────
+
 # CLIENTE SUPABASE
 # ─────────────────────────────────────────────────────────────────────────────
 
