@@ -14,7 +14,7 @@ import hmac
 import json
 from datetime import date
 from typing import Any, Optional, List, Tuple
-from core.schemas import InjuryInput
+from core.schemas import InjuryInput, ESTADO_LESION_OPTIONS
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
@@ -403,7 +403,10 @@ def insertar_wellness(
 
 
 def insertar_wellness_batch(sesiones: List[dict]) -> Tuple[bool, str]:
-    """Inserta múltiples registros Wellness en batch."""
+    """
+    Inserta múltiples registros Wellness en batch.
+    NOTA: El llamador es responsable de validar los datos (RPE, fechas, etc.) antes de llamar a esta función.
+    """
     client = get_client()
     if not client: return False, "No hay conexión a la base de datos."
     
@@ -417,7 +420,10 @@ def insertar_wellness_batch(sesiones: List[dict]) -> Tuple[bool, str]:
 
 
 def insertar_sesiones_batch(sesiones: List[dict]) -> Tuple[bool, str]:
-    """Inserta múltiples sesiones VMP en batch."""
+    """
+    Inserta múltiples sesiones VMP en batch.
+    NOTA: El llamador es responsable de validar los datos (VMP, fechas, etc.) antes de llamar a esta función.
+    """
     client = get_client()
     if not client: return False, "No hay conexión a la base de datos."
     
@@ -547,6 +553,9 @@ def cargar_historial_lesiones(atleta: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 def actualizar_estado_lesion(lesion_id: str, nuevo_estado: str, fecha_alta: Optional[date] = None) -> Tuple[bool, str]:
+    if nuevo_estado not in ESTADO_LESION_OPTIONS:
+        return False, f"Estado '{nuevo_estado}' inválido. Opciones: {ESTADO_LESION_OPTIONS}"
+        
     client = get_client()
     if not client: return False, "No hay conexión a la base de datos."
     
