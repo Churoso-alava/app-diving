@@ -1,9 +1,11 @@
 import streamlit as st
 from datetime import date
 from data.db import cargar_atletas, insertar_wellness
+from components.wellness_legend import render_wellness_legend
 
 def render_wellness_registro():
     st.subheader("Registro Wellness Hooper")
+    render_wellness_legend()
     
     atletas = cargar_atletas()
     if not atletas:
