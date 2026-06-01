@@ -11,12 +11,16 @@ import os
 import base64
 import hashlib
 import hmac
+import json
 from datetime import date
-from typing import Optional, List, Tuple
+from typing import Any, Optional, List, Tuple
+from core.schemas import InjuryInput
 import pandas as pd
+import streamlit as st
 from supabase import create_client, Client
 
 log = logging.getLogger(__name__)
+_LAST_DB_ERROR: Optional[str] = None
 
 # ── Límite anti-DoS para importaciones masivas (V-DOS) ──────────────────────
 MAX_IMPORT_ROWS: int = 500
@@ -73,17 +77,121 @@ def verificar_pin(pin: str, pin_hashed: str) -> bool:
 # CLIENTE SUPABASE
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _read_config_entry(name: str) -> tuple[Optional[str], Optional[str]]:
+    value = os.environ.get(name)
+    if value:
+        return value, "environment"
+    try:
+        value = st.secrets.get(name)
+    except Exception:
+        value = None
+    return (str(value), "streamlit secrets") if value else (None, None)
+
+
+def _read_config_value(name: str) -> Optional[str]:
+    value, _source = _read_config_entry(name)
+    return value
+
+
+def _resolve_supabase_credentials_with_source() -> tuple[Optional[str], Optional[str], Optional[str]]:
+    url, _url_source = _read_config_entry("SUPABASE_URL")
+    for key_name in ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY", "SUPABASE_KEY"):
+        key, _key_source = _read_config_entry(key_name)
+        if key:
+            return url, key, key_name
+    return url, None, None
+
+
+def _resolve_supabase_credentials() -> tuple[Optional[str], Optional[str]]:
+    url, key, _key_name = _resolve_supabase_credentials_with_source()
+    return url, key
+
+
+def _decode_jwt_role(key: str) -> Optional[str]:
+    parts = key.split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8"))
+        role = decoded.get("role")
+        return str(role) if role else None
+    except Exception:
+        return None
+
+
+def _service_key_config_error(key_name: Optional[str], key: Optional[str]) -> Optional[str]:
+    if key_name not in {"SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"} or not key:
+        return None
+
+    role = _decode_jwt_role(key)
+    if role == "anon":
+        return (
+            f"{key_name} esta configurada con una key de role anon. "
+            "Para esta app Streamlit server-side usa una Supabase Secret key "
+            "(sb_secret_...) o la legacy service_role key real. "
+            "La key anon/publica no puede leer tablas protegidas por RLS ni "
+            "objetos como public.users."
+        )
+    return None
+
+
+def _format_db_error(error: Any) -> str:
+    raw = str(error)
+    if "permission denied for function is_staff_or_admin" in raw.lower():
+        return (
+            "Supabase bloqueo la lectura porque el rol de la API no puede ejecutar "
+            "public.is_staff_or_admin(). Para uso local server-side, configura "
+            "SUPABASE_SERVICE_ROLE_KEY en Streamlit secrets o en variables de entorno. "
+            "Alternativa SQL: grant execute on function public.is_staff_or_admin() "
+            "to anon, authenticated;"
+        )
+    if "permission denied for table users" in raw.lower():
+        return (
+            "Supabase bloqueo cargar atletas porque la consulta termina accediendo "
+            "a public.users y el rol actual no tiene permisos. Verifica que "
+            "SUPABASE_SERVICE_ROLE_KEY sea una Secret key/service_role real; la "
+            "key anon/publica no es suficiente. Si decides no usar service_role, "
+            "debes revisar GRANT/RLS para public.users, public.atletas y las vistas "
+            "o politicas que las conectan."
+        )
+    return raw
+
+
+def _set_last_db_error(error: Any) -> None:
+    global _LAST_DB_ERROR
+    _LAST_DB_ERROR = _format_db_error(error)
+
+
+def clear_last_db_error() -> None:
+    global _LAST_DB_ERROR
+    _LAST_DB_ERROR = None
+
+
+def get_last_db_error() -> Optional[str]:
+    return _LAST_DB_ERROR
+
+
 def get_client() -> Optional[Client]:
-    """Retorna cliente Supabase autenticado usando variables de entorno."""
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
+    """Retorna cliente Supabase autenticado usando secrets o variables de entorno."""
+    url, key, key_name = _resolve_supabase_credentials_with_source()
 
     if not url or not key:
-        log.error("🔑 No se encontraron las credenciales de Supabase (SUPABASE_URL/SUPABASE_KEY)")
+        message = "🔑 No se encontraron las credenciales de Supabase (SUPABASE_URL/SUPABASE_KEY)"
+        _set_last_db_error(message)
+        log.error(message)
         return None
+
+    config_error = _service_key_config_error(key_name, key)
+    if config_error:
+        _set_last_db_error(config_error)
+        log.error(config_error)
+        return None
+
     try:
         return create_client(url, key)
     except Exception as e:
+        _set_last_db_error(e)
         log.error("Error al crear cliente Supabase: %s", e)
         return None
 
@@ -142,14 +250,29 @@ def get_perfil_staff(email: str) -> Optional[dict]:
         return None
 
 
+def borrar_registros_atleta(nombre: str) -> Tuple[bool, str]:
+    """Borra todos los registros de un atleta de sesiones_vmp y wellness_hooper."""
+    client = get_client()
+    if not client: return False, "No hay conexión a la base de datos."
+    try:
+        client.table("sesiones_vmp").delete().eq("nombre", nombre).execute()
+        client.table("wellness_hooper").delete().eq("nombre", nombre).execute()
+        return True, f"Registros de {nombre} borrados correctamente."
+    except Exception as exc:
+        log.error("borrar_registros_atleta: %s", exc)
+        return False, str(exc)
+
+
 def cargar_atletas() -> List[str]:
     """Retorna lista de nombres de atletas activos."""
     client = get_client()
     if not client: return []
     try:
         resp = client.table("atletas").select("nombre").eq("activo", True).execute()
+        clear_last_db_error()
         return [r["nombre"] for r in (resp.data or [])]
     except Exception as exc:
+        _set_last_db_error(exc)
         log.error("cargar_atletas: %s", exc)
         return []
 
@@ -162,6 +285,7 @@ def cargar_sesiones_raw() -> pd.DataFrame:
         resp = client.table("sesiones_vmp").select("*").order("fecha").execute()
         if not resp.data:
             log.warning("La tabla 'sesiones_vmp' está vacía.")
+            clear_last_db_error()
             return pd.DataFrame()
         df = pd.DataFrame(resp.data)
         df.columns = [c.lower() for c in df.columns]
@@ -170,8 +294,10 @@ def cargar_sesiones_raw() -> pd.DataFrame:
         df["vmp_hoy"] = pd.to_numeric(df["vmp_hoy"], errors="coerce")
         df["vmp_ref"] = pd.to_numeric(df.get("vmp_ref"), errors="coerce")
 
+        clear_last_db_error()
         return df
     except Exception as exc:
+        _set_last_db_error(exc)
         log.error("cargar_sesiones_raw falló: %s", exc, exc_info=True)
         return pd.DataFrame()
 
@@ -182,7 +308,7 @@ def cargar_wellness_atleta(nombre: str) -> pd.DataFrame:
     if not client: return pd.DataFrame()
     try:
         resp = (
-            client.table("wellness")
+            client.table("wellness_hooper")
             .select("*")
             .eq("nombre", nombre)
             .order("fecha", desc=True)
@@ -276,83 +402,161 @@ def insertar_wellness(
         # --- Fin de mejora para mensajes de error ---
 
 
-def insertar_carga_sesion(
-    nombre: str,
-    fecha: date,
-    carga_ua: float,
-    notas: str = "",
-) -> Tuple[bool, str]:
-    """Inserta carga de sesión individual."""
+def insertar_wellness_batch(sesiones: List[dict]) -> Tuple[bool, str]:
+    """Inserta múltiples registros Wellness en batch."""
     client = get_client()
     if not client: return False, "No hay conexión a la base de datos."
-
-    if carga_ua < 0:
-        return False, "carga_ua no puede ser negativa."
+    
     try:
-        client.table("cargas_sesion").insert({
-            "nombre":   nombre,
-            "fecha":    str(fecha),
-            "carga_ua": carga_ua,
-            "notas":    notas,
-        }).execute()
-        return True, "Carga registrada."
+        # Supabase Python client handles list of dicts for bulk inserts
+        client.table("wellness_hooper").insert(sesiones).execute()
+        return True, "Registros Wellness guardados correctamente."
     except Exception as exc:
-        log.error("insertar_carga_sesion: %s", exc)
+        log.error("insertar_wellness_batch: %s", exc)
         return False, str(exc)
 
 
-def insertar_carga_grupal_batch(
-    fecha: str,
-    df_ejercicios: pd.DataFrame,
-    atletas: List[str],
-    notas: str = "",
-) -> Tuple[bool, List[str]]:
-    """Inserta sesión grupal en batch."""
+def insertar_sesiones_batch(sesiones: List[dict]) -> Tuple[bool, str]:
+    """Inserta múltiples sesiones VMP en batch."""
     client = get_client()
-    if not client: return False, ["No hay conexión a la base de datos."]
-
-    errors: list[str] = []
-    df = df_ejercicios.copy()
-    df.columns = [c.lower().strip() for c in df.columns]
-
-    if not atletas:
-        return False, ["La lista de atletas no puede estar vacía."]
-    if df.empty:
-        return False, ["El DataFrame de ejercicios no puede estar vacío."]
-
-    # Validaciones
-    plataformas_inv = set(df["tipo_plataforma"].unique()) - _VALID_PLATAFORMAS
-    if plataformas_inv:
-        errors.append(f"tipo_plataforma inválido: {plataformas_inv}. Válidos: {_VALID_PLATAFORMAS}")
-
-    caidas_inv = set(df["tipo_caida"].unique()) - _VALID_CAIDAS
-    if caidas_inv:
-        errors.append(f"tipo_caida inválido: {caidas_inv}. Válidos: {_VALID_CAIDAS}")
-
-    if errors:
-        return False, errors
-
+    if not client: return False, "No hay conexión a la base de datos."
+    
     try:
-        for _, row in df.iterrows():
-            resp = (
-                client.table("cargas_grupales")
-                .insert({
-                    "fecha":           str(fecha),
-                    "tipo_plataforma": str(row["tipo_plataforma"]),
-                    "altura_salto":    float(row["altura_salto"]),
-                    "n_saltos":        int(row["n_saltos"]),
-                    "tipo_caida":      str(row["tipo_caida"]),
-                    "notas":           notas,
-                })
-                .execute()
-            )
-            carga_id = resp.data[0]["id"]
-            for atleta in atletas:
-                client.table("cargas_grupales_atletas").insert({
-                    "carga_grupal_id": carga_id,
-                    "nombre":          atleta,
-                }).execute()
-        return True, []
+        # Supabase Python client handles list of dicts for bulk inserts
+        client.table("sesiones_vmp").insert(sesiones).execute()
+        return True, "Sesiones registradas correctamente."
     except Exception as exc:
-        log.error("insertar_carga_grupal_batch: %s", exc)
-        return False, [str(exc)]
+        log.error("insertar_sesiones_batch: %s", exc)
+        return False, str(exc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CARGA DE ENTRENAMIENTO SUBJETIVA (RPE × Duración)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def validate_carga_entrenamiento(rpe: int, duracion_min: int) -> tuple[bool, str]:
+    """Valida RPE (1-10) y duración (>0 minutos)."""
+    if not (isinstance(rpe, int) and 1 <= rpe <= 10):
+        return False, f"RPE fuera de rango [1, 10]: {rpe}"
+    if not (isinstance(duracion_min, int) and duracion_min > 0):
+        return False, f"Duración debe ser un entero positivo (minutos): {duracion_min}"
+    return True, ""
+
+
+def insertar_carga_sesion(
+    nombre: str,
+    fecha: date,
+    rpe: int,
+    duracion_min: int,
+) -> Tuple[bool, str]:
+    """
+    Guarda la percepción subjetiva (RPE 1-10) y la duración del entreno
+    en la tabla sesiones_vmp mediante upsert por (nombre, fecha).
+    Carga total = rpe * duracion_min (Foster Method).
+    """
+    ok, msg = validate_carga_entrenamiento(rpe, duracion_min)
+    if not ok:
+        return False, msg
+    if not nombre or not nombre.strip():
+        return False, "nombre no puede estar vacío"
+
+    client = get_client()
+    if not client:
+        return False, "No hay conexión a la base de datos."
+    try:
+        client.table("sesiones_vmp").upsert(
+            {
+                "nombre": nombre.strip(),
+                "fecha": str(fecha),
+                "carga_subjetiva": rpe,
+                "duracion_min": duracion_min,
+            },
+            on_conflict="nombre,fecha",
+        ).execute()
+        carga_total = rpe * duracion_min
+        return True, f"Carga registrada: RPE {rpe} × {duracion_min} min = {carga_total} UA."
+    except Exception as exc:
+        log.error("insertar_carga_sesion(%s, %s): %s", nombre, fecha, exc)
+        return False, str(exc)
+
+
+def insertar_carga_sesion_batch(cargas: List[dict]) -> Tuple[bool, str]:
+    """
+    Inserta múltiples registros de carga en batch.
+    Cada dict debe tener: nombre, fecha, carga_subjetiva, duracion_min.
+    """
+    client = get_client()
+    if not client:
+        return False, "No hay conexión a la base de datos."
+    try:
+        client.table("sesiones_vmp").upsert(
+            cargas, on_conflict="nombre,fecha"
+        ).execute()
+        return True, f"{len(cargas)} registros de carga guardados correctamente."
+    except Exception as exc:
+        log.error("insertar_carga_sesion_batch: %s", exc)
+        return False, str(exc)
+
+def insertar_lesion(atleta: str, fecha_lesion: date, zona_corporal: str, tipo: str, gravedad: str, estado: str = "Activa", notas: str = "", fecha_alta: Optional[date] = None) -> Tuple[bool, str]:
+    # Validate with InjuryInput
+    try:
+        injury = InjuryInput(
+            atleta=atleta,
+            fecha_lesion=str(fecha_lesion),
+            zona_corporal=zona_corporal,
+            tipo=tipo,
+            gravedad=gravedad,
+            estado=estado,
+            notas=notas,
+            fecha_alta=str(fecha_alta) if fecha_alta else None
+        )
+    except ValueError as e:
+        return False, str(e)
+    
+    client = get_client()
+    if not client: return False, "No hay conexión a la base de datos."
+    
+    try:
+        client.table("lesiones").insert(injury.to_dict()).execute()
+        return True, "Lesión registrada correctamente."
+    except Exception as exc:
+        log.error("insertar_lesion: %s", exc)
+        return False, str(exc)
+
+def cargar_lesiones_activas(atleta: Optional[str] = None) -> pd.DataFrame:
+    client = get_client()
+    if not client: return pd.DataFrame()
+    try:
+        query = client.table("lesiones").select("*").in_("estado", ["Activa", "Recuperación"])
+        if atleta:
+            query = query.eq("atleta", atleta)
+        resp = query.order("fecha_lesion", desc=True).execute()
+        return pd.DataFrame(resp.data or [])
+    except Exception as exc:
+        log.error("cargar_lesiones_activas: %s", exc)
+        return pd.DataFrame()
+
+def cargar_historial_lesiones(atleta: str) -> pd.DataFrame:
+    client = get_client()
+    if not client: return pd.DataFrame()
+    try:
+        resp = client.table("lesiones").select("*").eq("atleta", atleta).order("fecha_lesion", desc=True).execute()
+        return pd.DataFrame(resp.data or [])
+    except Exception as exc:
+        log.error("cargar_historial_lesiones(%s): %s", atleta, exc)
+        return pd.DataFrame()
+
+def actualizar_estado_lesion(lesion_id: str, nuevo_estado: str, fecha_alta: Optional[date] = None) -> Tuple[bool, str]:
+    client = get_client()
+    if not client: return False, "No hay conexión a la base de datos."
+    
+    data = {"estado": nuevo_estado}
+    if fecha_alta:
+        data["fecha_alta"] = str(fecha_alta)
+    
+    try:
+        client.table("lesiones").update(data).eq("id", lesion_id).execute()
+        return True, f"Estado de lesión {lesion_id} actualizado a {nuevo_estado}."
+    except Exception as exc:
+        log.error("actualizar_estado_lesion(%s): %s", lesion_id, exc)
+        return False, str(exc)
