@@ -3,16 +3,17 @@ logic/services.py — NMF-Optimizer v4.4
 Capa de lógica de negocio. Sin dependencias de Streamlit ni base de datos.
 
 Responsabilidades:
-  - Calcular las 5 variables de entrada del motor Mamdani a partir de sesiones_vmp.
+  - Calcular la VMP y las variables temporales de entrada del motor Mamdani a partir de sesiones_vmp.
   - Manejar nulos por días sin entrenamiento (reindex diario con rolling windows).
   - Exponer pipeline_diagnostico() como punto de entrada unificado.
 
-Variables de entrada del motor Mamdani v4.1:
-  1. acwr       — Promedio VMP 7d / Promedio VMP 28d
-  2. delta_pct  — Variación % VMP hoy vs MMC28
-  3. z_meso     — Z-Score dentro del mesociclo (últimos 28d)
-  4. beta_aguda — Pendiente regresión lineal VMP en ventana 7d
-  5. beta_28    — Pendiente regresión lineal VMP en ventana 28d
+Variables de entrada del motor Mamdani v4.2:
+  1. vmp_hoy    — Velocidad media propulsiva actual
+  2. acwr       — Promedio VMP 7d / Promedio VMP 28d
+  3. delta_pct  — Variación % VMP hoy vs MMC28
+  4. z_meso     — Z-Score dentro del mesociclo (últimos 28d)
+  5. beta_aguda — Pendiente regresión lineal VMP en ventana 7d
+  6. beta_28    — Pendiente regresión lineal VMP en ventana 28d
 """
 from __future__ import annotations
 
@@ -21,18 +22,62 @@ import logging
 import numpy as np
 import pandas as pd
 from scipy import stats
-
-from core.schemas import SessionInput, AthleteMetrics, DiagnosticResult, VMP_MIN, VMP_MAX
+from core.schemas import SessionInput, AthleteMetrics, DiagnosticResult, VMP_MIN, VMP_MAX, InjuryInput
+from core.biomechanics import carga_bruta_sesion, normalizar_carga
+from core.wellness import calcular_wellness
+from core.stats_utils import estimar_centro_dispersion, pendiente_theil_sen
+from scipy.stats import shapiro as _shapiro
+from typing import Tuple, Optional
+from data.db import (
+    insertar_lesion, 
+    cargar_lesiones_activas, 
+    cargar_historial_lesiones, 
+    actualizar_estado_lesion
+)
 
 log = logging.getLogger(__name__)
+
+# ... (existing constants)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO DE LESIONES — SERVICIOS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def registrar_lesion_servicio(data: InjuryInput) -> Tuple[bool, str]:
+    """Registra una lesión usando los datos validados."""
+    # Data is already an InjuryInput instance, so it is validated
+    return insertar_lesion(
+        atleta=data.atleta,
+        fecha_lesion=pd.Timestamp(data.fecha_lesion).date(),
+        zona_corporal=data.zona_corporal,
+        tipo=data.tipo,
+        gravedad=data.gravedad,
+        estado=data.estado,
+        notas=data.notas,
+        fecha_alta=pd.Timestamp(data.fecha_alta).date() if data.fecha_alta else None
+    )
+
+def obtener_lesiones_activas_servicio(atleta: Optional[str] = None) -> pd.DataFrame:
+    """Retorna lesiones activas o en recuperación."""
+    return cargar_lesiones_activas(atleta=atleta)
+
+def obtener_historial_lesiones_servicio(atleta: str) -> pd.DataFrame:
+    """Retorna historial completo de lesiones de un atleta."""
+    return cargar_historial_lesiones(atleta=atleta)
+
+def actualizar_estado_lesion_servicio(lesion_id: str, nuevo_estado: str, fecha_alta: Optional[date] = None) -> Tuple[bool, str]:
+    """Actualiza estado y opcionalmente fecha de alta."""
+    return actualizar_estado_lesion(lesion_id, nuevo_estado, fecha_alta=fecha_alta)
+
+# ... (existing functions)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONSTANTES
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Data Quality Index — pesos y referencias
-_DQI_W7:  float = 0.40
-_DQI_W28: float = 0.60
+_DQI_W7:  float = 0.55   # mayor peso a calidad reciente — detección de fatiga aguda
+_DQI_W28: float = 0.45  # menor peso al histórico crónico
 _REF_7D:  int   = 3      # sesiones mínimas en 7d para DQI perfecto
 _REF_28D: int   = 12     # sesiones mínimas en 28d para DQI perfecto
 
@@ -53,9 +98,11 @@ def calcular_metricas(
     atleta: str,
     ventana_meso: int = 28,
     perfil: dict | None = None,
+    wellness_respuestas: dict | None = None,
+    clavados_planificados: list[dict] | None = None,
 ) -> AthleteMetrics:
     """
-    Calcula las 5 variables de entrada del motor Mamdani y métricas auxiliares.
+    Calcula la VMP, las variables temporales de entrada Mamdani y métricas auxiliares.
 
     Parámetros
     ----------
@@ -107,6 +154,9 @@ def calcular_metricas(
             "vmp_hoy": None, "mma7": None, "mmc28": None,
             "acwr": None, "delta_pct": None, "z_meso": None,
             "beta_aguda": None, "beta_28": None,
+            "wellness_norm": 0.5,
+            "carga_integrada_plan": 0.0,
+            "clavados_planificados": clavados_planificados,
             "dqi": None, "calidad_dato": "insuficiente",
             "swc_personal": None, "sd_personal": None, "caida_absoluta": None,
             "es_ruido_biologico": False, "n_sesiones_desc": 0,
@@ -135,8 +185,22 @@ def calcular_metricas(
     mp_28d = max(2, round(max(2, freq_day * 28) * _TOL))
 
     # ── ACWR: MMA7 / MMC28 ───────────────────────────────────────────────────
-    mma7_s  = vmp_daily.rolling("7D",  min_periods=mp_7d).mean()
-    mmc28_s = vmp_daily.rolling("28D", min_periods=mp_28d).mean()
+    _arr_completo = vmp_daily.dropna().values
+    if len(_arr_completo) >= 8:
+        try:
+            _, _p_sw = _shapiro(_arr_completo)
+            _usar_mediana = _p_sw <= 0.05
+        except Exception:
+            _usar_mediana = False
+    else:
+        _usar_mediana = True  # n pequeño → robusto por defecto
+
+    if _usar_mediana:
+        mma7_s  = vmp_daily.rolling("7D",  min_periods=mp_7d).median()
+        mmc28_s = vmp_daily.rolling("28D", min_periods=mp_28d).median()
+    else:
+        mma7_s  = vmp_daily.rolling("7D",  min_periods=mp_7d).mean()
+        mmc28_s = vmp_daily.rolling("28D", min_periods=mp_28d).mean()
 
     mma7  = float(mma7_s.iloc[-1])  if not pd.isna(mma7_s.iloc[-1])  else last_vmp
     mmc28 = float(mmc28_s.iloc[-1]) if not pd.isna(mmc28_s.iloc[-1]) else last_vmp
@@ -148,31 +212,26 @@ def calcular_metricas(
         np.clip(((mmc28 - last_vmp) / mmc28) * 100 if mmc28 > 0 else 0.0, -20, 40)
     )
 
-    # ── Z-Score mesociclo (últimos ventana_meso días) ────────────────────────
+    # ── Z-Score mesociclo (últimos ventana_meso días) ────────────
     cutoff_meso = last_date - pd.Timedelta(days=ventana_meso - 1)
-    win_meso    = vmp_daily[vmp_daily.index >= cutoff_meso].dropna()
-    if len(win_meso) >= 4 and float(win_meso.std()) > 0:
-        z_meso = (last_vmp - float(win_meso.mean())) / float(win_meso.std())
+    win_meso = vmp_daily[vmp_daily.index >= cutoff_meso].dropna()
+    if len(win_meso) >= 4:
+        centro_meso, disp_meso = estimar_centro_dispersion(win_meso)
+        z_meso = (last_vmp - centro_meso) / disp_meso if disp_meso > 0 else 0.0
     else:
         z_meso = 0.0
     z_meso = float(np.clip(z_meso, -4.0, 4.0))
 
-    # ── Pendientes vía polyfit (Fase 5: solo valores no-NaN) ─────────────────
+    # ── Pendientes vía Theil-Sen (Fase 5: solo valores no-NaN) ─────────────────
     def _pendiente_calendar(dias_back: int, min_n: int) -> float:
         """
-        Regresión lineal sobre la ventana [last_date - dias_back, last_date].
-        Usa solo días CON sesión (dropna). Retorna 0.0 si hay < min_n puntos.
-        Resultado en unidades de VMP/sesión (escalado por gap promedio).
+        Pendiente robusta de VMP usando Theil-Sen (no-paramétrico).
+        Retorna 0.0 si n < min_n o el IC 90% del slope incluye 0.
+        Unidades: m/s por sesión.
         """
         cutoff = vmp_daily.index[-1] - pd.Timedelta(days=dias_back - 1)
-        win    = vmp_daily[vmp_daily.index >= cutoff].dropna()
-        if len(win) < min_n:
-            return 0.0
-        x       = (win.index - win.index[0]).days.values.astype(float)
-        slope_d = np.polyfit(x, win.values, 1)[0]      # pendiente en m/s·día⁻¹
-        # Escalar por gap promedio → m/s por sesión
-        avg_gap = float(np.clip(x[-1] / max(len(x) - 1, 1), _GAP_MIN, _GAP_MAX))
-        return float(slope_d * avg_gap)
+        win = vmp_daily[vmp_daily.index >= cutoff].dropna()
+        return pendiente_theil_sen(win, min_n=min_n)
 
     beta_aguda = float(np.clip(_pendiente_calendar(7,  2), -0.25, 0.25))
     beta_28    = float(np.clip(_pendiente_calendar(28, 3), -0.25, 0.25))
@@ -216,6 +275,26 @@ def calcular_metricas(
           if np.mean(vmp_series.values) > 0 else 0.0)
     _, p_n = stats.shapiro(vmp_series.values) if n >= 8 else (None, None)
 
+    if wellness_respuestas is None:
+        wellness_norm = 0.5
+    else:
+        try:
+            wellness_norm = calcular_wellness(
+                sueno=int(wellness_respuestas["sueno"]),
+                fatiga=int(wellness_respuestas["fatiga"]),
+                estres=int(wellness_respuestas["estres"]),
+                dolor=int(wellness_respuestas["dolor"]),
+                humor=int(wellness_respuestas["humor"]),
+            )
+        except Exception:
+            wellness_norm = 0.5
+
+    if clavados_planificados:
+        carga_bruta_plan = carga_bruta_sesion(clavados_planificados)
+        carga_integrada_plan = normalizar_carga(carga_bruta_plan)
+    else:
+        carga_integrada_plan = 0.0
+
     return {
         # Identidad
         "atleta":              atleta,
@@ -249,6 +328,9 @@ def calcular_metricas(
         # Estadísticos
         "cv_pct":              float(cv),
         "p_normalidad":        float(p_n) if p_n is not None else None,
+        "wellness_norm":       float(wellness_norm),
+        "carga_integrada_plan": float(carga_integrada_plan),
+        "clavados_planificados": clavados_planificados,
     }
 
 
@@ -271,6 +353,8 @@ def pipeline_diagnostico(
     simulador,
     ventana_meso: int = 28,
     perfil: dict | None = None,
+    wellness_respuestas: dict | None = None,
+    clavados_planificados: list[dict] | None = None,
 ) -> DiagnosticResult:
     """
     Pipeline completo: datos → métricas → motor Mamdani → resultado.
@@ -278,7 +362,7 @@ def pipeline_diagnostico(
     Flujo
     -----
     1. Filtra sesiones del atleta desde df_raw (snake_case).
-    2. Calcula las 5 variables + métricas auxiliares.
+    2. Calcula VMP, variables temporales + métricas auxiliares.
     3. Aplica filtro SWC (neutraliza delta_pct si es ruido biológico).
     4. Corre el motor Mamdani y categoriza el índice de fatiga.
     5. Genera advertencias clínicas.
@@ -294,7 +378,14 @@ def pipeline_diagnostico(
     Retorna siempre un diccionario (DiagnosticResult).
     Si hay datos insuficientes (<4 sesiones), el estado será 'INSUFICIENTE'.
     """
-    metricas = calcular_metricas(df_raw, atleta, ventana_meso, perfil)
+    metricas = calcular_metricas(
+        df_raw,
+        atleta,
+        ventana_meso,
+        perfil,
+        wellness_respuestas=wellness_respuestas,
+        clavados_planificados=clavados_planificados,
+    )
     
     # Si calcular_metricas ya determinó que los datos son insuficientes, retornamos ese dict
     if metricas.get("estado") == "INSUFICIENTE":
@@ -313,11 +404,14 @@ def pipeline_diagnostico(
 
     # ── Motor Mamdani ────────────────────────────────────────────────────────
     try:
+        simulador.input["vmp_hoy"]    = metricas_fuzzy["vmp_hoy"]
         simulador.input["acwr"]       = metricas_fuzzy["acwr"]
         simulador.input["delta_pct"]  = metricas_fuzzy["delta_pct"]
         simulador.input["z_meso"]     = metricas_fuzzy["z_meso"]
         simulador.input["beta_aguda"] = metricas_fuzzy["beta_aguda"]
         simulador.input["beta_28"]    = metricas_fuzzy["beta_28"]
+        simulador.input["wellness_norm"] = metricas_fuzzy["wellness_norm"]
+        simulador.input["carga_integrada_plan"] = metricas_fuzzy["carga_integrada_plan"]
         simulador.compute()
         indice = float(simulador.output["fatiga"])
     except Exception as exc:
@@ -327,20 +421,20 @@ def pipeline_diagnostico(
     # ── Categorización del índice ─────────────────────────────────────────────
     if   indice >= 75:
         estado, color           = "🟢 ÓPTIMO",           "#16a34a"
-        accion_primaria         = "Entrenamiento normal"
-        contexto_cientifico     = "Adaptación positiva. Puede progresar carga con monitoreo."
+        accion_primaria         = "Ejecutar planificación tal cual"
+        contexto_cientifico     = "Carga y estado pre-entrenamiento compatibles con el plan del día."
     elif indice >= 50:
         estado, color           = "🟡 ALERTA TEMPRANA",  "#ca8a04"
-        accion_primaria         = "Reducir carga 10–15%"
-        contexto_cientifico     = "Monitoreo estrecho 48 h. Re-evaluar si persiste caída de VMP."
+        accion_primaria         = "Reducir carga planificada 10-15% o bajar altura/DD"
+        contexto_cientifico     = "Ajuste preventivo para mantener estímulo sin sobrerreacción aguda."
     elif indice >= 25:
         estado, color           = "🟠 FATIGA ACUMULADA", "#ea580c"
-        accion_primaria         = "Sesión regenerativa únicamente"
-        contexto_cientifico     = "Sin carga intensa. Priorizar recuperación y sueño."
+        accion_primaria         = "Sesión regenerativa planificada únicamente"
+        contexto_cientifico     = "Priorizar recuperación activa y control de carga interna."
     else:
         estado, color           = "🔴 CRÍTICO",           "#dc2626"
-        accion_primaria         = "Descanso obligatorio"
-        contexto_cientifico     = "Evaluación médica si el estado persiste > 24 h."
+        accion_primaria         = "Cancelar carga intensa, solo trabajo seco/banco"
+        contexto_cientifico     = "Riesgo elevado; evitar impacto y revaluar disponibilidad."
 
     # ── Advertencias clínicas ─────────────────────────────────────────────────
     advertencias: list[str] = []
@@ -415,6 +509,23 @@ def get_vmp_history(
         "mmc28": mmc28.values
     })
     return df_res
+
+
+def get_wellness_history(
+    atleta: str,
+) -> pd.DataFrame:
+    """
+    Retorna historial de wellness para un atleta.
+    """
+    from data.db import cargar_wellness_atleta
+    df = cargar_wellness_atleta(atleta)
+    if df.empty: return pd.DataFrame()
+    
+    # Calculate wellness index for each row
+    df['wellness'] = df.apply(lambda row: calcular_wellness(
+        row['sueno'], row['fatiga'], row['estres'], row['dolor'], row['humor']
+    ), axis=1)
+    return df[['fecha', 'wellness']]
 
 
 def pipeline_batch(
