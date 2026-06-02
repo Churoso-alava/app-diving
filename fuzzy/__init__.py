@@ -1,3 +1,0 @@
-"""
-Fuzzy logic package.
-"""

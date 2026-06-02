@@ -1,0 +1,2 @@
+[WARNING] Failed to read unmanaged installs: expected str, bytes or os.PathLike object, not NoneType
+C:\Users\PC\OneDrive\Desktop\AppDivingCodex\Python\pythoncore-3.14-64\python.exe: No module named streamlit
