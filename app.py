@@ -166,12 +166,24 @@ if rol == "staff":
                         st.plotly_chart(fig_wellness_tendencia(df_wellness, atleta_sel), use_container_width=True)
                     else:
                         st.info("No hay datos de Wellness para graficar.")
+
+                    # Gráfico de Carga de Entrenamiento
+                    df_atleta_raw = df_raw[df_raw["nombre"] == atleta_sel].copy()
+                    df_atleta_raw["carga_interna"] = df_atleta_raw["carga_subjetiva"] * df_atleta_raw["duracion_min"]
+                    st.plotly_chart(fig_carga_entrenamiento(df_atleta_raw, atleta_sel), use_container_width=True)
                     
                     # Tabla fija de variables
                     st.subheader("Variables Biomecánicas")
                     tabla_bio = pd.DataFrame({
                         "Variable": ["VMP Hoy", "ACWR", "Delta %", "Z-Meso", "Beta Aguda", "Beta 28d"],
-                        "Valor": [f"{res['vmp_hoy']:.2f}", f"{res['acwr']:.2f}", f"{res['delta_pct']:.1f}%", f"{res['z_meso']:.2f}", f"{res['beta_aguda']:.3f}", f"{res['beta_28']:.3f}"],
+                        "Valor": [
+                            f"{res.get('vmp_hoy') or 0.0:.2f}", 
+                            f"{res.get('acwr') or 0.0:.2f}", 
+                            f"{res.get('delta_pct') or 0.0:.1f}%", 
+                            f"{res.get('z_meso') or 0.0:.2f}", 
+                            f"{res.get('beta_aguda') or 0.0:.3f}", 
+                            f"{res.get('beta_28') or 0.0:.3f}"
+                        ],
                         "Fórmula": ["Medida directa", "Media 7d/28d", "(Hoy-MM28)/MM28", "(Hoy-MM28)/SD28", "Regresión 7d", "Regresión 28d"],
                         "Explicación": ["Velocidad actual", "Carga aguda/crónica", "Cambio relativo", "Posición mesociclo", "Tendencia breve", "Tendencia prolongada"]
                     })
