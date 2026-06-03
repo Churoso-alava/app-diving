@@ -304,8 +304,8 @@ if rol == "staff":
                 # Crear DataFrame base con todos los atletas
                 df_carga_grupal = pd.DataFrame({
                     "Atleta": atletas_carga,
-                    "RPE (1-10)": [5] * len(atletas_carga),
-                    "Duración (min)": [60] * len(atletas_carga)
+                    "RPE (1-10)": [0] * len(atletas_carga),
+                    "Duración (min)": [240] * len(atletas_carga)
                 })
                 
                 # Mezclar con datos existentes si los hay
@@ -322,8 +322,8 @@ if rol == "staff":
                         how="left"
                     )
                     # Llenar nulos con valores por defecto
-                    df_carga_grupal["RPE (1-10)"] = df_carga_grupal["RPE (1-10)"].fillna(5).astype(int)
-                    df_carga_grupal["Duración (min)"] = df_carga_grupal["Duración (min)"].fillna(60).astype(int)
+                    df_carga_grupal["RPE (1-10)"] = df_carga_grupal["RPE (1-10)"].fillna(0).astype(int)
+                    df_carga_grupal["Duración (min)"] = df_carga_grupal["Duración (min)"].fillna(240).astype(int)
                 
                 edited_carga_df = st.data_editor(df_carga_grupal, use_container_width=True, key="editor_carga_grupal")
                 
