@@ -134,3 +134,36 @@ def reporte_redundancias(
                     ),
                 })
     return sorted(redundancias, key=lambda x: -abs(x["rho"]))
+
+
+def analizar_correlacion_wellness_vmp(
+    df_wellness: pd.DataFrame,
+    df_metricas: pd.DataFrame
+) -> dict[str, float]:
+    """
+    Calcula la correlación Spearman entre ítems de wellness y el delta_pct de VMP.
+    
+    Sirve para calibrar los pesos de _PESOS_HOOPER basándose en datos reales
+    del equipo (TD-007).
+    
+    df_wellness: ['atleta', 'fecha', 'sueno', 'fatiga', 'estres', 'dolor', 'humor']
+    df_metricas: ['atleta', 'fecha', 'delta_pct']
+    """
+    # Mezclar datos por atleta y fecha
+    merged = pd.merge(
+        df_wellness, 
+        df_metricas, 
+        on=["atleta", "fecha"], 
+        how="inner"
+    )
+    if merged.empty:
+        return {}
+
+    items = ["sueno", "fatiga", "estres", "dolor", "humor"]
+    corrs = {}
+    for item in items:
+        # Spearman porque son escalas Likert (ordinales)
+        rho, _ = stats.spearmanr(merged[item], merged["delta_pct"], nan_policy="omit")
+        corrs[item] = round(float(rho), 3)
+        
+    return corrs
