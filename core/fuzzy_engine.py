@@ -192,6 +192,15 @@ def evaluar_atleta(
         simulador.input["beta_28"] = metricas_fuzzy["beta_28"]
         simulador.input["wellness_norm"] = wellness_norm
         simulador.input["carga_integrada_plan"] = carga_integrada_plan
+        # BUG-001 Fix: Asignar carga_subjetiva (RPE)
+        simulador.input["carga_subjetiva"] = metricas_fuzzy.get("carga_subjetiva", 5.0)
+
+        # ARCH-003: Validación pre-compute para asegurar integridad de inputs
+        current_inputs = simulador.input._get_inputs()
+        for ant in simulador.ctrl.antecedents:
+            if ant.label not in current_inputs:
+                 raise ValueError(f"Falta input para antecedente: '{ant.label}'")
+
         simulador.compute()
         indice = float(simulador.output["fatiga"])
     except Exception as exc:

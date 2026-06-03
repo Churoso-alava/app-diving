@@ -62,3 +62,13 @@ def test_vmp_alta_con_condiciones_optimas_es_optimo(motor):
         f"VMP alta + óptimas condiciones → {res['estado']} (índice={res['indice_fatiga']}). "
         f"Debe ser ÓPTIMO."
     )
+
+def test_motor_no_cae_en_fallback_50(motor):
+    """
+    BUG-001 Fix: El motor debe recibir todos los inputs (incluyendo carga_subjetiva/RPE)
+    y retornar un valor calculado, no el fallback de 50.0.
+    """
+    m = _metricas_base(vmp_hoy=1.40, acwr=1.10, carga_subjetiva=3.0) 
+    res = evaluar_atleta(motor, m, wellness_norm=0.9, carga_integrada_plan=50.0)
+    assert res["indice_fatiga"] != 50.0, "BUG-001: El motor sigue cayendo en fallback 50.0"
+    assert res["indice_fatiga"] > 70.0, f"Se esperaba un indice alto para condiciones optimas, obtenido: {res['indice_fatiga']}"

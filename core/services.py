@@ -152,10 +152,12 @@ def calcular_metricas(
         .copy()
         .sort_values("fecha")
     )
-    # Agrupar por fecha: máxima VMP del día (doble sesión)
+    # Agrupar por fecha: máxima VMP del día y RPE asociado
     sub = (
-        sub.groupby("fecha", as_index=False)["vmp_hoy"]
-        .max()
+        sub.groupby("fecha", as_index=False).agg({
+            "vmp_hoy": "max",
+            "carga_subjetiva": "max" # O promedio, usualmente max para fatiga
+        })
         .sort_values("fecha")
         .reset_index(drop=True)
     )
@@ -438,6 +440,9 @@ def pipeline_diagnostico(
         simulador.input["beta_28"]    = metricas_fuzzy["beta_28"]
         simulador.input["wellness_norm"] = metricas_fuzzy["wellness_norm"]
         simulador.input["carga_integrada_plan"] = metricas_fuzzy["carga_integrada_plan"]
+        # BUG-001 Fix: Pasar carga_subjetiva (RPE)
+        simulador.input["carga_subjetiva"] = metricas_fuzzy.get("carga_subjetiva", 5.0)
+
         simulador.compute()
         indice = float(simulador.output["fatiga"])
     except Exception as exc:

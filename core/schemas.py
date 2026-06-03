@@ -71,6 +71,7 @@ class AthleteMetrics(TypedDict, total=False):
     p_normalidad: Optional[float]
     wellness_norm: Optional[float]
     carga_integrada_plan: Optional[float]
+    carga_subjetiva: Optional[float]
     clavados_planificados: Optional[List[dict]]
     # Campos auxiliares para estados de error/insuficiencia
     estado: Optional[str]
