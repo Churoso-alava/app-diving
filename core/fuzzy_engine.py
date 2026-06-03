@@ -107,7 +107,9 @@ def construir_reglas(vmp_v, vmp_ratio_v, acwr_carga_v, delta_v, zmeso_v, ba_v, b
         ctrl.Rule(vmp_v["alta"] & (delta_v["ganancia"] | ba_v["positiva"]) & (b28_v["estable"] | b28_v["mejora"]), fat_v["optimo"]),
 
         # Reglas sRPE Load ACWR (Nuevas TD-009)
+        # Mayor agresividad ante carga excesiva
         ctrl.Rule(acwr_carga_v["excesivo"] & wellness_v["DEFICIENTE"], fat_v["critico"]),
+        ctrl.Rule(acwr_carga_v["excesivo"] & ci_v["SOBRECARGA"], fat_v["critico"]),
         ctrl.Rule(acwr_carga_v["alto"] & wellness_v["DEFICIENTE"], fat_v["fatiga_acumulada"]),
         ctrl.Rule(acwr_carga_v["optimo"] & wellness_v["OPTIMO"], fat_v["optimo"]),
 
@@ -126,7 +128,9 @@ def construir_reglas(vmp_v, vmp_ratio_v, acwr_carga_v, delta_v, zmeso_v, ba_v, b
 
         ctrl.Rule(vmp_ratio_v["bajo"] & delta_v["alarma"] & ba_v["neg_fuerte"], fat_v["fatiga_acumulada"]),
         ctrl.Rule(delta_v["alarma"] & b28_v["deterioro"] & zmeso_v["muy_bajo"], fat_v["critico"]),
-        ctrl.Rule(vmp_ratio_v["excesivo"] & zmeso_v["muy_bajo"] & ba_v["neg_fuerte"], fat_v["critico"]),
+        
+        # Colapso post-pico (TD-011): Reclasificado de Critico a Alerta Temprana si el ratio es alto
+        ctrl.Rule(vmp_ratio_v["excesivo"] & zmeso_v["muy_bajo"] & ba_v["neg_fuerte"], fat_v["alerta_temprana"]),
 
         ctrl.Rule(vmp_ratio_v["bajo"] & delta_v["alarma"], fat_v["fatiga_acumulada"]),
         ctrl.Rule(vmp_ratio_v["optimo"] & ba_v["neg_fuerte"] & zmeso_v["muy_bajo"], fat_v["fatiga_acumulada"]),
