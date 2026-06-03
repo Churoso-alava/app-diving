@@ -73,7 +73,7 @@ def cross_correlation_lag(
     y = serie_y.dropna().values
     min_n = min(len(x), len(y))
     x, y = x[:min_n], y[:min_n]
-    raw = _ccf(x, y, nlags=max_lag, adjusted=True)
+    raw = _ccf(x, y, nlags=max_lag + 1, adjusted=True)
     return {lag: round(float(raw[lag]), 3) for lag in range(max_lag + 1)}
 
 
