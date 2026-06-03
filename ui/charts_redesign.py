@@ -19,13 +19,16 @@ _DARK_LAYOUT = dict(
 
 def _apply_savgol(df: pd.DataFrame, col: str, window: int = 5, polyorder: int = 2) -> pd.Series:
     """Aplica filtro Savitzky-Golay. Ajusta ventana si la serie es corta."""
+    # Data cleaning: fill NaNs and replace Infs with 0
+    data = df[col].fillna(0).replace([float('inf'), float('-inf')], 0)
+    
     actual_window = min(window, len(df))
     if actual_window % 2 == 0:
         actual_window -= 1
     if actual_window < 3:
-        return df[col]
+        return data
     return pd.Series(
-        savgol_filter(df[col], window_length=actual_window, polyorder=polyorder),
+        savgol_filter(data, window_length=actual_window, polyorder=polyorder),
         index=df.index,
     )
 
@@ -138,7 +141,7 @@ def fig_carga_entrenamiento(df: pd.DataFrame, nombre_atleta: str) -> go.Figure:
         x=df["fecha"], 
         y=df["carga_interna"], 
         name="Carga Total (UA)",
-        marker_color=COLORS["primary_brand"],
+        marker_color=COLORS["accent"],
         opacity=0.6
     ))
     
