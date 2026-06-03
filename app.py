@@ -230,7 +230,7 @@ if rol == "staff":
             # Crear editor de datos para carga grupal
             df_grupal = pd.DataFrame({
                 "Atleta": atletas_list,
-                "VMP Hoy": [1.0] * len(atletas_list)
+                "VMP Hoy": [0.0] * len(atletas_list)
             })
             
             edited_df = st.data_editor(df_grupal, use_container_width=True)
