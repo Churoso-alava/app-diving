@@ -153,14 +153,18 @@ def calcular_metricas(
         .sort_values("fecha")
     )
     # Agrupar por fecha: máxima VMP del día y RPE asociado
+    agg_dict = {"vmp_hoy": "max"}
+    if "carga_subjetiva" in sub.columns:
+        agg_dict["carga_subjetiva"] = "max"
+
     sub = (
-        sub.groupby("fecha", as_index=False).agg({
-            "vmp_hoy": "max",
-            "carga_subjetiva": "max" # O promedio, usualmente max para fatiga
-        })
+        sub.groupby("fecha", as_index=False).agg(agg_dict)
         .sort_values("fecha")
         .reset_index(drop=True)
     )
+
+    if "carga_subjetiva" not in sub.columns:
+        sub["carga_subjetiva"] = 5.0 # Default neutral
 
     n = len(sub)
     if n < 4:

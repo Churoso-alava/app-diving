@@ -1,0 +1,148 @@
+Tengo los datos suficientes. Esta es la auditoría crítica que pediste.
+
+---
+
+# Auditoría de Reglas y Arquitectura del Motor Fuzzy
+## Foco: ACWR como Ratio de Rendimiento vs. Ratio de Carga, Desfase Temporal, y Coherencia de Reglas
+
+---
+
+## Problema 1: El `acwr` del Modelo NO es el ACWR de la Literatura
+
+Esta es la confusión conceptual más importante del sistema.
+
+### Qué calcula el modelo
+
+```python
+acwr = MMA7_vmp / MMC28_vmp
+```
+
+Esto es un **ratio de rendimiento**: ¿cómo está mi VMP reciente comparada con mi línea base crónica? Es una señal de OUTPUT (lo que el atleta produce).
+
+### Qué mide el ACWR de la literatura
+
+El ACWR clásico de Gabbett, Hulin, Bowen y las revisiones sistemáticas se calcula sobre **métricas de carga de entrenamiento** (sRPE × minutos, distancia GPS, PlayerLoad). Es una señal de INPUT (lo que el atleta ha absorbido). Como sintetiza [Monitoring Athlete Training Loads: Consensus Statement](https://consensus.app/papers/details/8549fee3445c5f9db8f432e7b75b972f/) (Bourdon et al., 2017, 938 citas, IJSPP), el ACWR de carga mide la preparación crónica del atleta para tolerar el estrés agudo — no su producción de fuerza.
+
+### Por qué los umbrales no son directamente transferibles
+
+Los umbrales 0.8–1.3 (óptimo) y >1.5 (excesivo) que aparecen en la literatura están calibrados sobre **unidades de carga** (UA de sRPE, metros recorridos, etc.), no sobre velocidades en m/s. Un ratio VMP 7d/28d de 1.50 significa que el atleta está **rindiendo 50% por encima de su línea base crónica** — lo cual señala supercompensación o pico de forma, no sobrecarga de entrenamiento. En la lógica de carga, ese mismo número indicaría un spike peligroso. La revisión de [Advanced feature engineering in ACWR for injury forecasting](https://consensus.app/papers/details/da729eb43a135c3dabdc23e3492908cd/) (Matas-Bustos et al., 2025) refuerza esto: las matrices de carga externa (GPS) y los índices de rendimiento generan información cualitativamente distinta y no intercambiable.
+
+### Implicación directa para tres reglas del motor
+
+```python
+# REGLA PROBLEMÁTICA — lógica invertida para VMP-ACWR
+ctrl.Rule(acwr_v["excesivo"] & zmeso_v["muy_bajo"] & ba_v["neg_fuerte"], fat_v["critico"])
+ctrl.Rule(acwr_v["excesivo"] & zmeso_v["normal"], fat_v["fatiga_acumulada"])
+ctrl.Rule(acwr_v["bajo"] & delta_v["alarma"] & ba_v["neg_fuerte"], fat_v["fatiga_acumulada"])
+```
+
+**La tercera regla es fisiológicamente correcta**: `acwr_bajo` en un ratio de rendimiento significa que la VMP reciente está por debajo del baseline crónico — señal genuina de fatiga acumulada. Esto está bien respaldado.
+
+**Las dos primeras son problemáticas**: `acwr_excesivo` en el contexto de rendimiento VMP señala que el atleta está produciendo mucho más que su crónica — esto es forma pico o supercompensación, no fatiga. Combinarlo con `zmeso_muy_bajo` y `ba_neg_fuerte` genera una contradicción: si la VMP reciente es excepcionalmente alta, ¿por qué el z-meso (que también usa VMP) estaría en muy_bajo? Esta combinación solo ocurriría en casos extremos de artefacto o transición brusca de ciclo, no como patrón fisiológico regular.
+
+---
+
+## Problema 2: El Modelo Carece de un ACWR de Carga Real
+
+El modelo tiene `carga_integrada_plan` (carga del día planeado) pero **no calcula el ratio agudo:crónico de la carga de entrenamiento histórica**. La tabla `sesiones_vmp` tiene `carga_subjetiva` y `duracion_min`, pero `services.py` no calcula:
+
+```
+acwr_carga = sRPE_load_7d / sRPE_load_28d
+```
+
+Este es el ACWR que la literatura vincula con riesgo de lesión y sobreentrenamiento. [A Novel Approach to Acute-Chronic Workload Index](https://consensus.app/papers/details/41ed4aa7981c5fb6b9cb0c3124dd5e51/) (Afonso et al., 2021) muestra explícitamente que el ACWR de carga y el índice de rendimiento son **no correlacionados** y proveen información distinta y complementaria. El modelo actualmente solo tiene uno de los dos.
+
+---
+
+## Problema 3: Desfase Temporal no Modelado
+
+### Qué dice la evidencia
+
+[Dose-response and time-lagged effect of daily training load on athlete well-being](https://consensus.app/papers/details/3f504113d3b850f4a461efb4365cd2c1/) (Crewther et al., 2024) usando modelos de lag distribuido no lineal en rugby élite muestra que el efecto de la carga diaria sobre el bienestar (fatiga, soreness, estrés) **no es inmediato**: a cargas elevadas (+2SD), el impacto sobre fatiga y estrés tiene un patrón bifásico con pico en lag 1–2 días. [Etiology and Recovery of Neuromuscular Function Following Academy Soccer Training](https://consensus.app/papers/details/9434a79f66465a87bb5c6cfe0e7745aa/) (Deely et al., 2022, 22 citas) midió MVC y función contractile muscular antes y a 24h, 48h y 72h después de una sesión de entrenamiento duro. La contractilidad muscular (función periférica) **todavía no había recuperado al 100% a las 72h**; el CMJ declinó a las 24h y el RSI a las 48h. [Predicting fatigue using countermovement jump force-time signatures](https://consensus.app/papers/details/19ca6ffa7d035bcc9cbc2be9b34a51e2/) (Wu et al., 2019) confirma que el CMJ puede predecir fatiga metabólica a 6–48h post-entrenamiento.
+
+### Cómo afecta la arquitectura actual
+
+El motor recibe simultáneamente:
+
+| Señal | Naturaleza temporal | ¿Qué refleja? |
+|---|---|---|
+| `vmp_hoy` | t=0 (hoy) | Fatiga acumulada de sesiones anteriores (lag -1 a -3 días) |
+| `acwr` (VMP) | Ventana [t-7, t-28] | Estado de rendimiento acumulado |
+| `wellness` | t=0 (hoy) | Estado subjetivo ANTES de entrenar |
+| `carga_integrada_plan` | t=0 (hoy) | CARGA que se va a imponer hoy |
+
+**El problema estructural**: `carga_integrada_plan` es la carga del día en curso, pero su impacto sobre VMP no se verá hasta mañana o pasado. El motor está tomando una decisión sobre la carga de hoy basándose en la VMP de hoy, que refleja la carga de hace 1–3 días. Esto es correcto para el **estado de fatiga actual**, pero la regla:
+
+```python
+ctrl.Rule(ci_v["SOBRECARGA"] & wellness_v["DEFICIENTE"], fat_v["critico"])
+```
+
+...es una decisión **prospectiva** (no añadir sobrecarga a quien ya está mal) mezclada con reglas **retrospectivas** (qué tan fatigado está ahora). Son preguntas distintas y el consequente único `fatiga` no las diferencia.
+
+---
+
+## Análisis de Reglas por Grupo
+
+### Grupo 1: Reglas VMP-primarias — Bien fundamentadas
+
+```python
+ctrl.Rule(vmp_v["muy_baja"] & (delta_v["alarma"] | zmeso_v["muy_bajo"]), fat_v["critico"])
+ctrl.Rule(vmp_v["baja"] & ba_v["neg_fuerte"] & (delta_v["vigilancia"] | delta_v["alarma"]), fat_v["fatiga_acumulada"])
+```
+
+**Coherencia: ✅ Alta.** Convergencia de rendimiento bajo + desviación del baseline + tendencia negativa. [Monitoring Training Load to Understand Fatigue in Athletes](https://consensus.app/papers/details/2869cd0ccfa854e6ae6474fb7594cb45/) (Halson, 2014, 1619 citas) establece que la disociación entre carga externa e interna (VMP baja ante cargas habituales) es el indicador más robusto de fatiga acumulada. Las reglas de VMP capturan precisamente esto.
+
+### Grupo 2: Reglas de pendientes (beta) — Fisiológicamente sólidas
+
+```python
+ctrl.Rule(b28_v["deterioro"] & (ba_v["neg_fuerte"] | ba_v["neg_moderada"]) & (zmeso_v["bajo"] | zmeso_v["muy_bajo"]), fat_v["fatiga_acumulada"])
+ctrl.Rule(ba_v["neg_fuerte"] & b28_v["estable"] & zmeso_v["normal"], fat_v["alerta_temprana"])
+```
+
+**Coherencia: ✅ Alta para la primera, ✅ correcta para la segunda.** La distinción entre deterioro agudo (beta_aguda neg) sobre trend crónico estable (fatiga aguda, aún recuperable) versus deterioro en ambas ventanas (fatiga acumulada estructural) replica el constructo FITNESS-FATIGUE del modelo de Banister. [Functional Overreaching in Endurance Athletes](https://consensus.app/papers/details/8cf1e9d2baf6532bbbc3e8a3a14c8b09/) (Bellinger, 2020) distingue exactamente este patrón: el overreaching funcional (recuperable) muestra declive agudo pero baseline crónico intacto; el no-funcional muestra deterioro en ambas ventanas temporales.
+
+### Grupo 3: Reglas ACWR_vmp — Coherencia parcial
+
+```python
+# ✅ Correcta — bajo VMP-ACWR = rendimiento bajo baseline = fatiga real
+ctrl.Rule(acwr_v["bajo"] & delta_v["alarma"], fat_v["fatiga_acumulada"])
+ctrl.Rule(acwr_v["bajo"] & b28_v["deterioro"] & ba_v["neg_fuerte"], fat_v["fatiga_acumulada"])
+
+# ⚠️ Cuestionable — alto VMP-ACWR debería indicar forma, no fatiga
+ctrl.Rule(acwr_v["excesivo"] & zmeso_v["muy_bajo"] & ba_v["neg_fuerte"], fat_v["critico"])
+ctrl.Rule(acwr_v["excesivo"] & zmeso_v["normal"], fat_v["fatiga_acumulada"])
+```
+
+**El primer bloque: ✅ correcto.** VMP-ACWR bajo es la señal de alarma válida en un ratio de rendimiento. **El segundo bloque: ⚠️ fisiológicamente inconsistente** salvo que se reinterprete como patrón de colapso post-pico (atleta que sube abruptamente y luego rompe), lo cual ocurre pero es un caso especial, no la regla general.
+
+### Grupo 4: Reglas carga integrada — Mezclando dimensiones
+
+```python
+ctrl.Rule(ci_v["SOBRECARGA"] & wellness_v["DEFICIENTE"], fat_v["critico"])       # ✅ Decisión prospectiva
+ctrl.Rule(ci_v["MANTENIMIENTO"] & wellness_v["OPTIMO"], fat_v["optimo"])          # ✅
+ctrl.Rule(ci_v["RECUPERACION"] & vmp_v["baja"] & acwr_v["optimo"], fat_v["alerta_temprana"])  # ⚠️
+```
+
+La última regla es conceptualmente extraña: si la carga planificada es de recuperación Y el VMP_ACWR es óptimo... el estado debería ser mejor que alerta_temprana. Posible artefacto de mezcla de dimensiones temporales.
+
+### Grupo 5: Reglas de supercompensación — Bien articuladas
+
+```python
+ctrl.Rule(vmp_v["alta"] & (delta_v["ganancia"] | ba_v["positiva"]) & (b28_v["estable"] | b28_v["mejora"]), fat_v["optimo"])
+ctrl.Rule(acwr_v["optimo"] & zmeso_v["elevado"] & b28_v["mejora"], fat_v["optimo"])
+```
+
+**Coherencia: ✅ Alta.** Estas reglas capturan correctamente el patrón de supercompensación del modelo fitness-fatigue. La lógica de [Real-Time Athlete Fatigue Monitoring Using Fuzzy Decision Support Systems](https://consensus.app/papers/details/6f79d57e18595e10a61ff78d5f91be23/) (Li, 2025) confirma que los sistemas fuzzy aplicados a monitoreo de atletas obtienen mejor rendimiento cuando combinan variables objetivas de rendimiento con indicadores de bienestar subjetivo, exactamente como hace este grupo de reglas.
+
+---
+
+## Tres Nuevas Deudas Técnicas Derivadas
+
+**TD-009: Renombrar y separar `acwr` como `vmp_ratio` y añadir `acwr_carga` real.**
+El `acwr` actual es un ratio de rendimiento. Debe nombrarse `vmp_ratio` para evitar confusión conceptual. Paralelamente, calcular `acwr_carga = sRPE_load_7d / sRPE_load_28d` desde el historial de `carga_subjetiva × duracion_min` ya almacenado en la DB. Este sería el verdadero ACWR de carga, alineado con la literatura de riesgo de lesión.
+
+**TD-010: Modelar explícitamente el desfase temporal de `carga_integrada_plan`.**
+La carga del día actual impacta la VMP en t+1 a t+3 días. Implementar `cross_correlation_lag(carga_series, vmp_series)` desde `analysis.py` sobre datos históricos del equipo para determinar el lag real predominante en esta población. El resultado debería informar si el consequente de las reglas de `ci_v` debe ser un "estado de riesgo prospectivo" separado del índice de fatiga actual.
+
+**TD-011: Revisar y eliminar o reclasificar las reglas con `acwr_v["excesivo"]`.**
+Las dos reglas que combinan VMP-ACWR excesivo con señales de fatiga son fisiológicamente inconsistentes. Deben ser o bien eliminadas, o bien reclasificadas como un patrón de "colapso post-pico" con una membresía consecuente diferente (ej. `alerta_temprana` en lugar de `critico`/`fatiga_acumulada`), validando primero si este patrón ocurre en los datos del equipo.

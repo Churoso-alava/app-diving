@@ -1,0 +1,129 @@
+Ahora las últimas dos búsquedas críticas: SWC y los pesos del Wellness.Tengo todos los datos necesarios. Voy a sintetizar la auditoría completa.
+
+---
+
+# Auditoría Fisiológica del Motor Fuzzy Mamdani v4.2
+## AppDivingCodex — Contraste con Evidencia Científica
+
+---
+
+## 1. VMP (Velocidad Media Propulsiva del CMJ) como Indicador de Fatiga Neuromuscular
+
+### Supuesto del modelo
+`vmp_hoy` es el antecedente de mayor peso. VMP < 85% del MMC28 activa alertas de fatiga; VMP < 75% activa estado crítico.
+
+### Evidencia
+
+**Soporte fuerte.** La revisión de [The countermovement jump to monitor neuromuscular status: A meta-analysis](https://consensus.app/papers/details/e123785358265d39818efc3393602dbc/) (Claudino et al., 2017, 517 citas) confirma que el CMJ es sensible tanto a fatiga como a supercompensación, y que el promedio de intentos es más sensible que el mejor intento para detectar cambios. Gathercole et al. (2015) compararon CMJ, squat jump, drop jump y sprint en 6 sesiones, concluyendo que [Comparison of the Capacity of Different Jump and Sprint Field Tests to Detect Neuromuscular Fatigue](https://consensus.app/papers/details/7705e1a87ca955cbaf9cc0fce474dcfe/) el CMJ fue el más adecuado por combinar alta repetibilidad (CV ~3%) con cambios sostenidos hasta 72h post-fatiga. [Selecting Metrics That Matter](https://consensus.app/papers/details/2fb8fb04c2965a028056ed941d978709/) (Bishop et al., 2023, 128 citas) profundiza en qué métricas priorizar según el objetivo: la velocidad pico/media en fase concéntrica es más sensible que la altura de salto para monitoreo de fatiga.
+
+**Tensión no resuelta.** La mayoría de estudios usan altura de salto o potencia pico como variable principal. El modelo usa VMP (velocidad media propulsiva), que es más una variable biomecánica de fuerza-velocidad que un simple output cinemático. Aunque es mecánicamente más precisa, la base de validación directa para VMP como variable de seguimiento rutinario en clavados es inexistente en la literatura revisada. La extrapolación desde deportes de equipo a clavados sincronizados es plausible fisiológicamente, pero no está validada en esta población.
+
+**Veredicto: ✅ Bien fundamentado (CMJ como indicador) / ⚠️ Extrapolación no validada en diving.**
+
+---
+
+## 2. ACWR (Ratio Agudo:Crónico — 7d/28d)
+
+### Supuesto del modelo
+`acwr = MMA7 / MMC28`, con zona óptima en 0.78–1.30 y zona excesiva en 1.45–1.80. Implementado con media o mediana según normalidad (Shapiro-Wilk).
+
+### Evidencia
+
+**Soporte moderado para las zonas de umbral.** La meta-análisis más reciente, [Acute to chronic workload ratio (ACWR) for predicting sports injury risk](https://consensus.app/papers/details/087d762d2488512796cba19ffdfb4dd6/) (Qin et al., 2025, 22 estudios de cohorte), establece que la incidencia de lesión se minimiza cuando el ACWR se mantiene en **0.8–1.3** — coincidiendo casi exactamente con el rango "óptimo" del modelo (0.78–1.30). La revisión de [Spikes in acute:chronic workload ratio associated with a 5–7 times greater injury rate](https://consensus.app/papers/details/28052cb45bc653dcbbb3c977dce0dfd7/) (Bowen et al., 2019, 151 citas, Premier League) documenta RR de 5–7× para ACWR > 2.0 cuando la carga crónica es baja.
+
+**Crítica metodológica mayor — no ignorar.** Impellizzeri et al. (2020) publicaron en Sports Medicine [What Role Do Chronic Workloads Play in the Acute to Chronic Workload Ratio? Time to Dismiss ACWR](https://consensus.app/papers/details/8558942d1a99573e826698c8097f1f02/), demostrando matemáticamente que el ACWR es esencialmente un reescalado del numerador (carga aguda), que la crónica actúa como artefacto estadístico, y que el c-statistic del ACWR para predecir lesiones es 0.574 — apenas sobre el azar (0.5). En la misma línea, [Analyzing Activity and Injury: Lessons Learned from the Acute:Chronic Workload Ratio](https://consensus.app/papers/details/29c521f56d2053249b8714982a3a465a/) (Wang et al., 2020, 78 citas) enumera múltiples limitaciones: el problema de carga inicial, la inaplicabilidad del EWMA en deportes con taper, y el sesgo por datos escasos.
+
+**Problema técnico específico: Rolling Average vs. EWMA.** La revisión sistemática de [The Association Between the Acute:Chronic Workload Ratio and Injury and its Application in Team Sports](https://consensus.app/papers/details/c8645bfb3e595137b2ca12901a6921cf/) (Griffin et al., 2019, 125 citas) concluye que el EWMA es **más adecuado** que el promedio rodante (RA) por su mayor sensibilidad. El modelo actual usa RA — esto es una debilidad técnica documentada.
+
+**Veredicto: ✅ Umbrales correctos (0.78–1.30) / ❌ Implementación RA en lugar de EWMA (deuda técnica registrable) / ⚠️ Validez predictiva cuestionada a nivel estadístico — usar como una señal más, nunca como criterio único.**
+
+---
+
+## 3. Wellness (Hooper Modificado) — Pesos Diferenciados
+
+### Supuesto del modelo
+Escala 1–7 en 5 ítems con pesos: sueño 0.30, fatiga 0.25, estrés 0.20, dolor 0.15, humor 0.10. Citado en Saw et al. 2016 y Buchheit 2014.
+
+### Evidencia
+
+**Soporte fuerte para el uso de medidas subjetivas.** La revisión sistemática más citada del campo — [Monitoring the athlete training response: subjective self-reported measures trump commonly used objective measures](https://consensus.app/papers/details/700649a8b67b52a4a3fc8c905694525e/) (Saw et al., 2015, 791 citas, BJSM) — es precisamente la fuente que el modelo referencia. Sus conclusiones son directas: las medidas subjetivas reflejan cambios en la carga aguda y crónica con mayor sensibilidad y consistencia que las objetivas (marcadores bioquímicos, FC en reposo, etc.). [Perceptions of Wellness to Monitor Adaptive Responses to Training and Competition in Elite Australian Football](https://consensus.app/papers/details/49cafe72a57e5264a1337e211a32fc8d/) (Gastin et al., 2013, 173 citas) valida ecológicamente el uso de wellness subjetivo durante una temporada completa con 2,583 cuestionarios, mostrando sensibilidad a la carga semanal y a períodos de descarga.
+
+**Tensión sobre los pesos específicos.** La revisión [Single-Item Self-Report Measures and Their Relationship With Training Load](https://consensus.app/papers/details/dc11c354f47f570790e5e73e1f0daffa/) (Duignan et al., 2020, 58 citas) reporta que fatiga, sueño y dolor muscular son los ítems más usados, con asociaciones de triviales a moderadas con la carga. Críticamente, Campbell et al. (2021) en [Analysing the predictive capacity and dose-response of wellness in load monitoring](https://consensus.app/papers/details/65bccabe611a5ca991c02487e45f602b/) muestran que el modelo de árbol de decisión para predecir wellness desde carga (sRPE, TL) explica <5% de la varianza — los ítems de wellness tienen baja predictibilidad desde carga objetiva pero son valiosos como *señales de alerta temprana independientes*.
+
+**Los pesos 0.30/0.25/0.20/0.15/0.10 son una decisión de diseño, no un parámetro publicado.** Saw et al. 2016 y Buchheit 2014 describen la relevancia diferencial de los ítems, pero no prescriben coeficientes numéricos. Estos pesos son una formalización razonable, pero no han sido derivados empíricamente de los datos del equipo ni validados externamente para poblaciones de clavadistas.
+
+**Veredicto: ✅ Uso de wellness subjetivo sólidamente respaldado / ⚠️ Pesos específicos son ingenierías de decisión sin validación publicada — requieren calibración empírica con `cronbach_alpha_wellness()` y `umbrales_por_percentil()` ya implementados.**
+
+---
+
+## 4. RPE × Duración (Método Foster) — `carga_subjetiva`
+
+### Supuesto del modelo
+`carga_integrada_plan = RPE × duracion_min`. Usado como antecedente `ci_v` en el motor fuzzy.
+
+### Evidencia
+
+**Soporte muy fuerte.** [Session-RPE Method for Training Load Monitoring: Validity, Ecological Usefulness, and Influencing Factors](https://consensus.app/papers/details/453d0370fe9c53c5b884f63670ca9d6d/) (Haddad et al., 2017, 463 citas, Frontiers in Neuroscience) revisa 950 estudios citantes del método Foster y 36 que lo validan directamente, confirmando validez y buena confiabilidad en múltiples deportes para hombres y mujeres de distintas edades. Las correlaciones con TRIMP de Edwards oscilan entre r = 0.65–0.91. [The Relationships Between Internal and External Measures of Training Load](https://consensus.app/papers/details/20b2028b012059a9b625ac8ed893fa6f/) (McLaren et al., 2018, 364 citas) en meta-análisis reporta r = 0.79 entre sRPE-TL y distancia total. El método es válido incluso en deportes acuáticos: [The validity of the session-RPE method for quantifying training load in water polo](https://consensus.app/papers/details/a6fdbd8753da5df98f9f8df23a10ac28/) (Lupo et al., 2014) mostró r = 0.88 con Edwards en polo acuático — el deporte más cercano a clavados en la literatura.
+
+**Limitación para clavados:** el RPE × tiempo funciona mejor cuando la sesión tiene intensidad relativamente uniforme. En clavados hay intervalos de alta intensidad (ejecución) alternados con recuperación pasiva (retroalimentación técnica), lo que puede subestimar la carga pico. El modelo podría beneficiarse de capturar número de clavados × DD como variable de volumen externo.
+
+**Veredicto: ✅ Método Foster ampliamente validado / ⚠️ Posible subestimación de carga pico en sesiones intermitentes de clavados.**
+
+---
+
+## 5. SWC (Smallest Worthwhile Change) — Filtro de Ruido Biológico
+
+### Supuesto del modelo
+`swc_personal = SD_personal × 1.0` para adultos, `× 1.5` para menores de 15 años. Si la caída < SWC, el `delta_pct` se neutraliza a 0.
+
+### Evidencia
+
+**SWC = 1×SD estándar en ciencias del deporte.** El uso de SWC para distinguir señal de ruido de medición es metodología establecida; múltiples estudios lo usan como umbral de cambio práctico, incluyendo [Countermovement Jump Analysis Using Different Portable Devices](https://consensus.app/papers/details/07e467f0cdeb538c9bcf91300810f23d/) (Rago et al., 2018) y la revisión de [Sprint Running Performance Monitoring](https://consensus.app/papers/details/c01bf4e2d0fb51b6b5efa1a6b9780f2e/) (Haugen et al., 2016, 334 citas).
+
+**Multiplicador pediátrico de 1.5× no tiene respaldo publicado.** El ajuste para atletas < 15 años es fisiológicamente razonable (mayor variabilidad biológica del desarrollo), pero no aparece respaldado por literatura específica. Es una decisión de diseño conservadora que reduce falsos positivos en poblaciones jóvenes, lo cual es clínicamente prudente.
+
+**Veredicto: ✅ Concepto SWC bien fundamentado / ⚠️ Multiplicador pediátrico 1.5× sin cita directa — decisión prudente pero no validada.**
+
+---
+
+## 6. Z-Score Adaptativo (MAD) para `z_meso`
+
+### Supuesto del modelo
+`estimar_centro_dispersion()` aplica Shapiro-Wilk: si distribución normal → media + SD; si no normal → mediana + MAD × 1.4826. Theil-Sen para pendientes.
+
+### Evidencia
+
+Este es el **supuesto estadísticamente más sofisticado y correcto** del modelo. El uso de MAD como estimador robusto para distribuciones no normales está bien establecido en estadística, y el factor de consistencia 1.4826 para comparar con σ es canónico. El uso de Theil-Sen (estimador no paramétrico de pendiente) en lugar de regresión OLS es apropiado cuando no se puede asumir normalidad de residuos, y resiste bien outliers (breakdown point del 29%). El diagnóstico previo de no-normalidad en datos VMP del equipo (audit_individual.py: Shapiro-Wilk p < 0.05 en varios atletas) justifica este diseño.
+
+**Veredicto: ✅ Estadísticamente sólido. Sin objeciones metodológicas.**
+
+---
+
+## Resumen Ejecutivo de la Auditoría
+
+| Componente | Estado | Riesgo | Acción |
+|---|---|---|---|
+| CMJ/VMP como indicador de fatiga NM | ✅ Respaldado | Bajo | Ninguna |
+| ACWR zona óptima (0.78–1.30) | ✅ Respaldado | Bajo | Ninguna |
+| ACWR implementación RA vs EWMA | ❌ RA menos sensible | Medio | Migrar a EWMA |
+| ACWR como predictor único de lesión | ⚠️ Debate activo | Medio | Ya mitigado: es un antecedente más, no el único |
+| Wellness Hooper subjetivo | ✅ Respaldado | Bajo | Ninguna |
+| Pesos wellness (0.30/0.25/…) | ⚠️ Sin validación publicada | Medio | Calibrar con `cronbach_alpha_wellness()` sobre datos históricos del equipo |
+| RPE × Duración (Foster) | ✅ Respaldado | Bajo | Considerar número de clavados × DD como complemento |
+| SWC = 1×SD (adultos) | ✅ Respaldado | Bajo | Ninguna |
+| SWC = 1.5×SD (< 15 años) | ⚠️ Sin cita directa | Bajo | Decisión conservadora aceptable |
+| MAD + Theil-Sen adaptativos | ✅ Estadísticamente correcto | Bajo | Ninguna |
+| Validación en población diving | ❌ Ausente en literatura | Alto | Recolectar datos del equipo para calibrar empíricamente membresías |
+
+---
+
+## Tres Deudas Técnicas Prioritarias Derivadas de esta Auditoría
+
+**TD-006 (nueva): Migrar ACWR de Rolling Average a EWMA.**
+Griffin et al. (2019) y Wang et al. (2020) documentan que el EWMA supera al RA en sensibilidad. En `services.py`, reemplazar `.rolling("7D").mean()` y `.rolling("28D").mean()` por un promedio exponencialmente ponderado con λ adaptado a la frecuencia de entrenamiento del equipo.
+
+**TD-007 (nueva): Calibración empírica de pesos de Wellness con datos del equipo.**
+Los pesos 0.30/0.25/0.20/0.15/0.10 son una formalización razonable pero no derivada de datos propios. Ejecutar `cronbach_alpha_wellness()` + análisis de correlación de cada ítem con VMP-delta para derivar pesos empíricos del equipo de clavados.
+
+**TD-008 (nueva): Protocolo de validación interna — correlación VMP × Fatiga subjetiva.**
+La validez del sistema completo depende de que el índice de fatiga prediga la VMP del día siguiente o del entrenamiento posterior. Implementar `cross_correlation_lag(acwr_series, vmp_series, max_lag=7)` de `analysis.py` sobre datos históricos del equipo para verificar que el modelo captura el desfase temporal real en esta población.
