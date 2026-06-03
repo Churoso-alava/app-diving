@@ -7,13 +7,14 @@ Responsabilidades:
   - Manejar nulos por días sin entrenamiento (reindex diario con rolling windows).
   - Exponer pipeline_diagnostico() como punto de entrada unificado.
 
-Variables de entrada del motor Mamdani v4.2:
+Variables de entrada del motor Mamdani v4.3:
   1. vmp_hoy    — Velocidad media propulsiva actual
-  2. acwr       — Promedio VMP 7d / Promedio VMP 28d
-  3. delta_pct  — Variación % VMP hoy vs MMC28
-  4. z_meso     — Z-Score dentro del mesociclo (últimos 28d)
-  5. beta_aguda — Pendiente regresión lineal VMP en ventana 7d
-  6. beta_28    — Pendiente regresión lineal VMP en ventana 28d
+  2. vmp_ratio  — Rendimiento EWMA 7d / 28d (antes ACWR)
+  3. acwr_carga — Carga interna (sRPE) EWMA 7d / 28d
+  4. delta_pct  — Variación % VMP hoy vs MMC28
+  5. z_meso     — Z-Score dentro del mesociclo (últimos 28d)
+  6. beta_aguda — Pendiente robusta (Theil-Sen) VMP en ventana 7d
+  7. beta_28    — Pendiente robusta (Theil-Sen) VMP en ventana 28d
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ from scipy import stats
 from core.schemas import SessionInput, AthleteMetrics, DiagnosticResult, VMP_MIN, VMP_MAX, InjuryInput
 from core.biomechanics import carga_bruta_sesion, normalizar_carga
 from core.wellness import calcular_wellness
-from core.stats_utils import estimar_centro_dispersion, pendiente_theil_sen
+from core.stats_utils import estimar_centro_dispersion, pendiente_theil_sen, calcular_ewma
 from scipy.stats import shapiro as _shapiro
 from typing import Tuple, Optional
 from data.db import (
@@ -228,34 +229,21 @@ def calcular_metricas(
     mp_7d  = max(1, round(max(1, freq_day * 7)  * _TOL))
     mp_28d = max(2, round(max(2, freq_day * 28) * _TOL))
 
-    # ── VMP Ratio (antes ACWR): MMA7 / MMC28 de Rendimiento ──────────────────
-    _arr_completo = vmp_daily.dropna().values
-    if len(_arr_completo) >= 8:
-        try:
-            _, _p_sw = _shapiro(_arr_completo)
-            _usar_mediana = _p_sw <= 0.05
-        except Exception:
-            _usar_mediana = False
-    else:
-        _usar_mediana = True  # n pequeño → robusto por defecto
+    # ── VMP Ratio (antes ACWR): EWMA de Rendimiento ──────────────────────────
+    # Para VMP_ratio, usamos span de 7 y 28 días
+    mma7_s  = calcular_ewma(vmp_daily, span=7)
+    mmc28_s = calcular_ewma(vmp_daily, span=28)
 
-    if _usar_mediana:
-        mma7_s  = vmp_daily.rolling("7D",  min_periods=mp_7d).median()
-        mmc28_s = vmp_daily.rolling("28D", min_periods=mp_28d).median()
-    else:
-        mma7_s  = vmp_daily.rolling("7D",  min_periods=mp_7d).mean()
-        mmc28_s = vmp_daily.rolling("28D", min_periods=mp_28d).mean()
-
+    # Si hay muy pocos datos, el primer valor de EWMA es el primer punto
+    # Pero queremos el último valor calculado
     mma7  = float(mma7_s.iloc[-1])  if not pd.isna(mma7_s.iloc[-1])  else last_vmp
     mmc28 = float(mmc28_s.iloc[-1]) if not pd.isna(mmc28_s.iloc[-1]) else last_vmp
 
     vmp_ratio = float(np.clip(mma7 / mmc28 if mmc28 > 0 else 1.0, 0.50, 1.80))
 
-    # ── ACWR de Carga (sRPE): MMA7 / MMC28 de Carga Interna ──────────────────
-    # Para carga, usamos promedio RA (Rolling Average) simple, con 0 en días sin datos
-    # sRPE ACWR es la métrica estándar de carga
-    mma7_c = carga_daily.rolling("7D").mean().iloc[-1]
-    mmc28_c = carga_daily.rolling("28D").mean().iloc[-1]
+    # ── ACWR de Carga (sRPE): EWMA de Carga Interna ──────────────────────────
+    mma7_c = calcular_ewma(carga_daily, span=7).iloc[-1]
+    mmc28_c = calcular_ewma(carga_daily, span=28).iloc[-1]
     acwr_carga = float(np.clip(mma7_c / mmc28_c if mmc28_c > 0 else 1.0, 0.30, 2.50))
 
     # ── Delta %: variación VMP hoy vs MMC28 ─────────────────────────────────
@@ -357,8 +345,9 @@ def calcular_metricas(
         "vmp_hoy":             last_vmp,
         "mma7":                mma7,
         "mmc28":               mmc28,
-        # ── 5 variables Mamdani ──
-        "acwr":                acwr,
+        # ── variables Mamdani ──
+        "vmp_ratio":           vmp_ratio,
+        "acwr_carga":          acwr_carga,
         "delta_pct":           delta_pct,
         "z_meso":              z_meso,
         "beta_aguda":          beta_aguda,
@@ -456,7 +445,8 @@ def pipeline_diagnostico(
     # ── Motor Mamdani ────────────────────────────────────────────────────────
     try:
         simulador.input["vmp_hoy"]    = metricas_fuzzy["vmp_hoy"]
-        simulador.input["acwr"]       = metricas_fuzzy["acwr"]
+        simulador.input["vmp_ratio"]  = metricas_fuzzy["vmp_ratio"]
+        simulador.input["acwr_carga"] = metricas_fuzzy["acwr_carga"]
         simulador.input["delta_pct"]  = metricas_fuzzy["delta_pct"]
         simulador.input["z_meso"]     = metricas_fuzzy["z_meso"]
         simulador.input["beta_aguda"] = metricas_fuzzy["beta_aguda"]

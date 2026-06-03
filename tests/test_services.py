@@ -17,7 +17,8 @@ def test_calcular_metricas_insuficientes():
     assert res["estado"] == "INSUFICIENTE"
     assert res["n_sesiones"] == 3
     # Verificar que las llaves esperadas existan para evitar KeyErrors
-    assert "acwr" in res
+    assert "vmp_ratio" in res
+    assert "acwr_carga" in res
     assert "indice_fatiga" in res
 
 def test_calcular_metricas_suficientes():
@@ -28,7 +29,7 @@ def test_calcular_metricas_suficientes():
     })
     res = calcular_metricas(df, "Atleta 1")
     assert res["n_sesiones"] == 10
-    assert "acwr" in res
+    assert "vmp_ratio" in res
     assert "delta_pct" in res
 
 def _df_atleta(n=15, vmp_base=1.2):
@@ -86,6 +87,6 @@ def test_acwr_robusto_a_sesion_atipica():
     fechas = pd.date_range("2025-01-01", periods=14, freq="D").strftime("%Y-%m-%d").tolist()
     df = pd.DataFrame({"nombre": ["T"]*14, "fecha": fechas, "vmp_hoy": vmps, "carga_subjetiva": [5.0]*14})
     res = calcular_metricas(df, "T")
-    # Con mediana MMA7 = 1.2. ACWR = 1.2/1.2 = 1.0. 
-    # Con media MMA7 ≈ 1.43. ACWR ≈ 1.19.
-    assert res["acwr"] < 1.10, f"ACWR no fue robusto ante outlier: {res['acwr']}"
+    # Con mediana MMA7 = 1.2. VMP_Ratio = 1.2/1.2 = 1.0. 
+    # Con media MMA7 ≈ 1.43. VMP_Ratio ≈ 1.19.
+    assert res["vmp_ratio"] < 1.10, f"VMP_Ratio no fue robusto ante outlier: {res['vmp_ratio']}"

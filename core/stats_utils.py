@@ -97,3 +97,17 @@ def pendiente_theil_sen(
 
     avg_gap = float(np.clip(x[-1] / max(len(x) - 1, 1), gap_min, gap_max))
     return float(np.clip(result[0] * avg_gap, -0.25, 0.25))
+
+
+def calcular_ewma(series: pd.Series, span: int) -> pd.Series:
+    """
+    Calcula el promedio móvil ponderado exponencialmente (EWMA).
+    
+    Se usa para ACWR de carga y rendimiento por ser más sensible a 
+    cambios agudos que el promedio rodante simple (RA).
+    
+    Formula: alpha = 2 / (span + 1)
+    """
+    # Usar adjust=False para formula recursiva pura (S_t = a*Y_t + (1-a)*S_{t-1})
+    # y ignore_na=False para que nulos propaguen o sean manejados por fillna previo.
+    return series.ewm(span=span, adjust=False, ignore_na=False).mean()
