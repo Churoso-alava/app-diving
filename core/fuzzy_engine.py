@@ -162,33 +162,48 @@ def construir_motor_fuzzy():
     simulador = ctrl.ControlSystemSimulation(sistema)
     return vars_tuple, simulador
 
+def _mapear_inputs_fuzzy(metricas: dict, wellness_norm: float, carga_integrada_plan: float) -> dict:
+    """Centraliza el mapeo de métricas crudas a etiquetas del motor (ARCH-001)."""
+    return {
+        "vmp_hoy":               metricas["vmp_hoy"],
+        "vmp_ratio":             metricas.get("vmp_ratio", 1.0),
+        "acwr_carga":            metricas.get("acwr_carga", 1.0),
+        "delta_pct":             metricas["delta_pct"],
+        "z_meso":                metricas["z_meso"],
+        "beta_aguda":            metricas["beta_aguda"],
+        "beta_28":               metricas["beta_28"],
+        "wellness_norm":         wellness_norm,
+        "carga_integrada_plan":  carga_integrada_plan,
+        "carga_subjetiva":       metricas.get("carga_subjetiva", 5.0),
+    }
+
 def evaluar_atleta(
     simulador,
     metricas: dict,
     wellness_norm: float = 0.5,
     carga_integrada_plan: float = 0.0,
 ) -> dict:
+    """
+    Evalúa el estado del atleta usando el motor fuzzy.
+    Separa preprocesamiento de ejecución (ARCH-002).
+    """
+    # 1. Preprocesamiento (SWC)
     if metricas.get("es_ruido_biologico", False):
-        metricas_fuzzy = {**metricas, "delta_pct": 0.0}
+        m_proc = {**metricas, "delta_pct": 0.0}
         nota_swc = (
-            f"⬇ Caída {metricas['caida_absolute']:.3f} m/s < SWC "
+            f"⬇ Caída {metricas['caida_absoluta']:.3f} m/s < SWC "
             f"{metricas['swc_personal']:.3f} m/s → variabilidad biológica normal."
         )
     else:
-        metricas_fuzzy = metricas
+        m_proc = metricas
         nota_swc = ""
 
+    # 2. Mapeo y Ejecución
     try:
-        simulador.input["vmp_hoy"] = metricas_fuzzy["vmp_hoy"]
-        simulador.input["vmp_ratio"] = metricas_fuzzy.get("vmp_ratio", 1.0)
-        simulador.input["acwr_carga"] = metricas_fuzzy.get("acwr_carga", 1.0)
-        simulador.input["delta_pct"] = metricas_fuzzy["delta_pct"]
-        simulador.input["z_meso"] = metricas_fuzzy["z_meso"]
-        simulador.input["beta_aguda"] = metricas_fuzzy["beta_aguda"]
-        simulador.input["beta_28"] = metricas_fuzzy["beta_28"]
-        simulador.input["wellness_norm"] = wellness_norm
-        simulador.input["carga_integrada_plan"] = carga_integrada_plan
-        simulador.input["carga_subjetiva"] = metricas_fuzzy.get("carga_subjetiva", 5.0)
+        fuzzy_inputs = _mapear_inputs_fuzzy(m_proc, wellness_norm, carga_integrada_plan)
+        
+        for key, val in fuzzy_inputs.items():
+            simulador.input[key] = val
 
         # ARCH-003: Validación pre-compute
         current_inputs = simulador.input._get_inputs()

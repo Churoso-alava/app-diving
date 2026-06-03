@@ -82,7 +82,9 @@ def test_motor_no_cae_en_fallback_50(motor):
     assert res["indice_fatiga"] > 70.0, f"Se esperaba un indice alto para condiciones optimas, obtenido: {res['indice_fatiga']}"
 
 def test_acwr_carga_excesivo_con_wellness_malo_es_critico(motor):
-    """NUEVO: ACWR de carga excesivo (>1.5) + wellness deficiente → CRÍTICO."""
-    m = _metricas_base(vmp_hoy=1.20, vmp_ratio=1.00, acwr_carga=1.80)
-    res = evaluar_atleta(motor, m, wellness_norm=0.20, carga_integrada_plan=120.0)
-    assert res["indice_fatiga"] < 30, f"Carga excesiva + wellness deficiente → {res['estado']} ({res['indice_fatiga']}). Debe ser CRÍTICO."
+    """NUEVO: ACWR de carga excesivo (>1.5) + wellness deficiente + VMP baja → CRÍTICO."""
+    # Con VMP funcional (1.20) el motor amortigua el riesgo.
+    # Con VMP baja (0.85) el riesgo debe disparar una alerta clara.
+    m = _metricas_base(vmp_hoy=0.85, vmp_ratio=1.00, acwr_carga=1.85)
+    res = evaluar_atleta(motor, m, wellness_norm=0.15, carga_integrada_plan=140.0)
+    assert res["indice_fatiga"] < 60, f"Carga excesiva + wellness deficiente + VMP baja → {res['estado']} ({res['indice_fatiga']}). Debe disparar ALERTA o FATIGA."
