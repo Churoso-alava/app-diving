@@ -251,6 +251,18 @@ def calcular_metricas(
         np.clip(((mmc28 - last_vmp) / mmc28) * 100 if mmc28 > 0 else 0.0, -20, 40)
     )
 
+    # ── Análisis de Desfase Temporal (TD-010) ────────────────────────────────
+    try:
+        from core.analysis import cross_correlation_lag
+        # Solo si tenemos suficientes datos
+        if len(vmp_daily.dropna()) >= 14:
+            lags = cross_correlation_lag(carga_daily, vmp_daily, max_lag=7)
+            opt_lag = max(lags, key=lambda k: abs(lags[k]))
+            log.info("Atleta '%s': Desfase carga -> VMP detectado a %d días (rho=%.3f)", 
+                     atleta, opt_lag, lags[opt_lag])
+    except Exception as e:
+        log.debug("No se pudo calcular cross-correlation lag: %s", e)
+
     # ── Z-Score mesociclo (últimos ventana_meso días) ────────────
     cutoff_meso = last_date - pd.Timedelta(days=ventana_meso - 1)
     win_meso = vmp_daily[vmp_daily.index >= cutoff_meso].dropna()
