@@ -17,7 +17,7 @@ from data.db import (
 )
 from components.tab_lesiones import render_tab_lesiones
 from ui.charts import fig_vmp_tendencia, fig_semaforo_barras, fig_semaforo_historico, fig_fatiga_radial
-from ui.charts_redesign import fig_vmp_tendencia_redesign, fig_fatiga_tendencia, fig_wellness_tendencia
+from ui.charts_redesign import fig_vmp_tendencia_redesign, fig_fatiga_tendencia, fig_wellness_tendencia, fig_carga_entrenamiento
 from ui.auth_session import is_authenticated, get_role, get_user_id, get_atleta_vmp
 from ui.auth_pages import render_login, render_user_info
 
@@ -169,8 +169,11 @@ if rol == "staff":
 
                     # Gráfico de Carga de Entrenamiento
                     df_atleta_raw = df_raw[df_raw["nombre"] == atleta_sel].copy()
-                    df_atleta_raw["carga_interna"] = df_atleta_raw["carga_subjetiva"] * df_atleta_raw["duracion_min"]
-                    st.plotly_chart(fig_carga_entrenamiento(df_atleta_raw, atleta_sel), use_container_width=True)
+                    if not df_atleta_raw.empty:
+                        df_atleta_raw["carga_interna"] = df_atleta_raw["carga_subjetiva"] * df_atleta_raw["duracion_min"]
+                        st.plotly_chart(fig_carga_entrenamiento(df_atleta_raw, atleta_sel), use_container_width=True)
+                    else:
+                        st.info("No hay datos de carga de entrenamiento para graficar.")
                     
                     # Tabla fija de variables
                     st.subheader("Variables Biomecánicas")
