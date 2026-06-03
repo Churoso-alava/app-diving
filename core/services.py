@@ -152,10 +152,12 @@ def calcular_metricas(
         .copy()
         .sort_values("fecha")
     )
-    # Agrupar por fecha: máxima VMP del día y RPE asociado
+    # Agrupar por fecha: máxima VMP del día, RPE y duración
     agg_dict = {"vmp_hoy": "max"}
     if "carga_subjetiva" in sub.columns:
         agg_dict["carga_subjetiva"] = "max"
+    if "duracion_min" in sub.columns:
+        agg_dict["duracion_min"] = "sum" # Sumar minutos si hay doble sesión
 
     sub = (
         sub.groupby("fecha", as_index=False).agg(agg_dict)
@@ -165,6 +167,11 @@ def calcular_metricas(
 
     if "carga_subjetiva" not in sub.columns:
         sub["carga_subjetiva"] = 5.0 # Default neutral
+    if "duracion_min" not in sub.columns:
+        sub["duracion_min"] = 60.0   # Default 1h
+
+    # Calcular carga interna (sRPE)
+    sub["carga_interna"] = sub["carga_subjetiva"] * sub["duracion_min"]
 
     n = len(sub)
     if n < 4:
@@ -184,10 +191,12 @@ def calcular_metricas(
             "nota_swc": "",
             # Add other keys with default/None values to match expected dict structure
             "vmp_hoy": None, "mma7": None, "mmc28": None,
-            "acwr": None, "delta_pct": None, "z_meso": None,
+            "acwr": None, "vmp_ratio": None, "acwr_carga": None, 
+            "delta_pct": None, "z_meso": None,
             "beta_aguda": None, "beta_28": None,
             "wellness_norm": 0.5,
             "carga_integrada_plan": 0.0,
+            "carga_subjetiva": 5.0,
             "clavados_planificados": clavados_planificados,
             "dqi": None, "calidad_dato": "insuficiente",
             "swc_personal": None, "sd_personal": None, "caida_absoluta": None,
@@ -201,12 +210,15 @@ def calcular_metricas(
     # ── Serie temporal diaria (Fase 5: manejo de nulos) ───────────────────────
     idx        = pd.to_datetime(sub["fecha"])
     vmp_series = pd.Series(sub["vmp_hoy"].values, index=idx, dtype=float)
+    carga_series = pd.Series(sub["carga_interna"].values, index=idx, dtype=float)
 
     # Reindex a calendario diario continuo → NaN donde no hubo sesión
     date_range = pd.date_range(start=idx.min(), end=idx.max(), freq="D")
     vmp_daily  = vmp_series.reindex(date_range)
+    carga_daily = carga_series.reindex(date_range).fillna(0.0) # 0 carga días sin entreno
 
     last_vmp  = float(vmp_series.iloc[-1])
+    last_rpe  = float(sub["carga_subjetiva"].iloc[-1])
     last_date = idx.max()
     hoy       = pd.Timestamp.today().normalize()
 
@@ -216,7 +228,7 @@ def calcular_metricas(
     mp_7d  = max(1, round(max(1, freq_day * 7)  * _TOL))
     mp_28d = max(2, round(max(2, freq_day * 28) * _TOL))
 
-    # ── ACWR: MMA7 / MMC28 ───────────────────────────────────────────────────
+    # ── VMP Ratio (antes ACWR): MMA7 / MMC28 de Rendimiento ──────────────────
     _arr_completo = vmp_daily.dropna().values
     if len(_arr_completo) >= 8:
         try:
@@ -237,7 +249,14 @@ def calcular_metricas(
     mma7  = float(mma7_s.iloc[-1])  if not pd.isna(mma7_s.iloc[-1])  else last_vmp
     mmc28 = float(mmc28_s.iloc[-1]) if not pd.isna(mmc28_s.iloc[-1]) else last_vmp
 
-    acwr = float(np.clip(mma7 / mmc28 if mmc28 > 0 else 1.0, 0.50, 1.80))
+    vmp_ratio = float(np.clip(mma7 / mmc28 if mmc28 > 0 else 1.0, 0.50, 1.80))
+
+    # ── ACWR de Carga (sRPE): MMA7 / MMC28 de Carga Interna ──────────────────
+    # Para carga, usamos promedio RA (Rolling Average) simple, con 0 en días sin datos
+    # sRPE ACWR es la métrica estándar de carga
+    mma7_c = carga_daily.rolling("7D").mean().iloc[-1]
+    mmc28_c = carga_daily.rolling("28D").mean().iloc[-1]
+    acwr_carga = float(np.clip(mma7_c / mmc28_c if mmc28_c > 0 else 1.0, 0.30, 2.50))
 
     # ── Delta %: variación VMP hoy vs MMC28 ─────────────────────────────────
     delta_pct = float(

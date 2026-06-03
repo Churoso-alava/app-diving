@@ -54,6 +54,8 @@ class AthleteMetrics(TypedDict, total=False):
     mma7: Optional[float]
     mmc28: Optional[float]
     acwr: Optional[float]
+    vmp_ratio: Optional[float]
+    acwr_carga: Optional[float]
     delta_pct: Optional[float]
     z_meso: Optional[float]
     beta_aguda: Optional[float]
