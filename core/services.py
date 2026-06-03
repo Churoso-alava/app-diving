@@ -581,7 +581,7 @@ def get_wellness_history(
     df['wellness'] = df.apply(lambda row: calcular_wellness(
         row['sueno'], row['fatiga'], row['estres'], row['dolor'], row['humor']
     ), axis=1)
-    return df[['fecha', 'wellness']]
+    return df[['fecha', 'wellness', 'sueno', 'fatiga', 'estres', 'dolor', 'humor']]
 
 
 def pipeline_batch(
