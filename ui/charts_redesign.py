@@ -116,3 +116,40 @@ def fig_wellness_tendencia(df: pd.DataFrame, nombre_atleta: str) -> go.Figure:
         yaxis=dict(**yaxis_base, range=[0, 8]),
     )
     return fig
+
+
+def fig_carga_entrenamiento(df: pd.DataFrame, nombre_atleta: str) -> go.Figure:
+    """
+    Gráfico de barras para carga diaria (RPE * Duración) con curva de tendencia suavizada.
+    """
+    df = df.copy()
+    df["fecha"] = pd.to_datetime(df["fecha"])
+    # Asegurar que la carga está calculada
+    if "carga_interna" not in df.columns:
+        df["carga_interna"] = df["carga_subjetiva"] * df["duracion_min"]
+    
+    df = df.sort_values("fecha")
+    df["carga_smooth"] = _apply_savgol(df, "carga_interna")
+
+    fig = go.Figure()
+    
+    # Barras de carga diaria
+    fig.add_trace(go.Bar(
+        x=df["fecha"], 
+        y=df["carga_interna"], 
+        name="Carga Total (UA)",
+        marker_color=COLORS["primary_brand"],
+        opacity=0.6
+    ))
+    
+    # Curva de tendencia
+    fig.add_trace(go.Scatter(
+        x=df["fecha"], 
+        y=df["carga_smooth"], 
+        mode="lines", 
+        name="Tendencia (Suavizado)",
+        line=dict(color="#ffffff", width=2)
+    ))
+
+    fig.update_layout(**_DARK_LAYOUT, title=f"Carga de Entrenamiento — {nombre_atleta}")
+    return fig
