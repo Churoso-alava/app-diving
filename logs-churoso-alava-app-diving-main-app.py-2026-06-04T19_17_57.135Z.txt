@@ -1,0 +1,84 @@
+
+[     UTC     ] Logs for app-diving-amxkd9pwrehej4smbvb4zr.streamlit.app/
+────────────────────────────────────────────────────────────────────────────────────────
+[19:17:04] 🖥 Provisioning machine...
+[19:17:10] 🎛 Preparing system...
+[19:17:15] ⛓ Spinning up manager process...
+[19:17:09] 🚀 Starting up repository: 'app-diving', branch: 'main', main module: 'app.py'
+[19:17:09] 🐙 Cloning repository...
+[19:17:11] 🐙 Cloning into '/mount/src/app-diving'...
+
+[19:17:11] 🐙 Cloned repository!
+[19:17:11] 🐙 Pulling code changes from Github...
+[19:17:11] 📦 Processing dependencies...
+
+──────────────────────────────────────── uv ───────────────────────────────────────────
+
+Using uv pip install.
+error: Unexpected '<', expected '-c', '-e', '-r' or the start of a requirement at requirements.txt:1:1
+Checking if Streamlit is installed
+Installing rich for an improved exception logging
+Using uv pip install.
+Using Python 3.14.5 environment at /home/adminuser/venv
+Resolved 4 packages in 130ms
+Prepared 4 packages in 124ms
+Installed 4 packages in 19ms
+ + markdown-it-py==4.2.0
+ + mdurl==0.1.2
+ + pygments==2.20.0
+ + rich==15.0.0
+
+────────────────────────────────────────────────────────────────────────────────────────
+
+
+──────────────────────────────────────── pip ───────────────────────────────────────────
+
+Using standard pip install.
+ERROR: Invalid requirement: '<<<<<<< HEAD' (from line 1 of /mount/src/app-diving/requirements.txt)
+
+[notice] A new release of pip is available: 24.0 -> 26.1.2
+[notice] To update, run: pip install --upgrade pip
+Checking if Streamlit is installed
+Installing rich for an improved exception logging
+Using standard pip install.
+Collecting rich>=10.14.0
+  Downloading rich-15.0.0-py3-none-any.whl.metadata (18 kB)
+Collecting markdown-it-py>=2.2.0 (from rich>=10.14.0)
+  Downloading markdown_it_py-4.2.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting pygments<3.0.0,>=2.13.0 (from rich>=10.14.0)
+  Downloading pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich>=10.14.0)
+  Downloading mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+Downloading rich-15.0.0-py3-none-any.whl (310 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 310.7/310.7 kB 13.4 MB/s eta 0:00:00[2026-06-04 19:17:15.168647] 
+Downloading markdown_it_py-4.2.0-py3-none-any.whl (91 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 91.7/91.7 kB 249.4 MB/s eta 0:00:00[2026-06-04 19:17:15.183219] 
+Downloading pygments-2.20.0-py3-none-any.whl (1.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.2/1.2 MB 104.6 MB/s eta 0:00:00[2026-06-04 19:17:15.221761] 
+Downloading mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Installing collected packages: pygments, mdurl, markdown-it-py, rich
+  Attempting uninstall: pygments
+    Found existing installation: Pygments 2.20.0
+    Uninstalling Pygments-2.20.0:
+      Successfully uninstalled Pygments-2.20.0
+  Attempting uninstall: mdurl
+    Found existing installation: mdurl 0.1.2
+    Uninstalling mdurl-0.1.2:
+      Successfully uninstalled mdurl-0.1.2
+  Attempting uninstall: markdown-it-py
+    Found existing installation: markdown-it-py 4.2.0
+    Uninstalling markdown-it-py-4.2.0:
+      Successfully uninstalled markdown-it-py-4.2.0
+  Attempting uninstall: rich
+    Found existing installation: rich 15.0.0
+    Uninstalling rich-15.0.0:
+      Successfully uninstalled rich-15.0.0
+Successfully installed markdown-it-py-4.2.0 mdurl-0.1.2 pygments-2.20.0 rich-15.0.0
+
+[notice] A new release of pip is available: 24.0 -> 26.1.2
+[notice] To update, run: pip install --upgrade pip
+
+────────────────────────────────────────────────────────────────────────────────────────
+
+[19:17:18] ❗️ installer returned a non-zero exit code
+[19:17:18] ❗️ Error during processing dependencies! Please fix the error and push an update, or try restarting the app.
